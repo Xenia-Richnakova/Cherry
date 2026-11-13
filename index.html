@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<body>
+<button onclick="test()">Test POST</button>
+<pre id="out"></pre>
+<script>
+async function test() {
+  const out = document.getElementById("out");
+  try {
+    const res = await fetch("http://192.168.0.83:3000/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: "Test", memberIds: ["anna"], yourMemberId: "anna" }),
+    });
+    out.textContent = "HTTP " + res.status + "\n" + (await res.text());
+  } catch (err) {
+    out.textContent = "Failed: " + err;
+  }
+}
+</script>
+</body>
+</html>
