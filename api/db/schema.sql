@@ -17,6 +17,9 @@ CREATE TABLE IF NOT EXISTS expenses (
   payer_id     TEXT NOT NULL,
   amount_cents INTEGER NOT NULL CHECK (amount_cents > 0),
   description  TEXT,
+  category     TEXT,
+  expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  note         TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   FOREIGN KEY (workspace_id, payer_id)
     REFERENCES workspace_members(workspace_id, member_id)
@@ -32,6 +35,14 @@ CREATE TABLE IF NOT EXISTS expense_participants (
 );
 
 CREATE INDEX IF NOT EXISTS idx_expenses_workspace ON expenses(workspace_id);
+
+CREATE TABLE IF NOT EXISTS workspace_categories (
+  workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  category_key TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, category_key)
+);
 
 -- Authentication
 CREATE TABLE IF NOT EXISTS users (

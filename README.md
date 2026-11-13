@@ -20,3 +20,16 @@ git push -u origin main
 git remote add origin git@github.com:Xenia-Richnakova/Cherry.git
 git branch -M main
 git push -u origin main
+
+## Expo
+cd mobile                                          
+npx expo start --web 
+
+## DB 
+Must be turned on in PostrgeSQL app
+
+/Applications/Postgres.app/Contents/Versions/latest/bin/psql postgres://localhost/cherry -f api/db/schema.sql
+/Applications/Postgres.app/Contents/Versions/latest/bin/pg_isready -h localhost -p 5432
+
+## Starting server
+DATABASE_URL=postgres://localhost/cherry npx tsx src/server.ts

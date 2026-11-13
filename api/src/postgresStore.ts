@@ -2,7 +2,7 @@
 import { randomUUID } from "crypto";
 import { Pool, PoolClient } from "pg";
 import { Expense, MemberId } from "./split";
-import { Workspace } from "./store";
+import { Workspace, WorkspaceSummary } from "./store";
 import { NotFoundError } from "./errors";
 import { UserRecord } from "./memoryStore";
 
@@ -41,7 +41,8 @@ export class PostgresStore {
     );
 
     const expenseRows = await this.pool.query(
-      `SELECT e.id, e.payer_id, e.amount_cents,
+      `SELECT e.id, e.payer_id, e.amount_cents, e.description, e.category,
+              e.expense_date, e.note,
               COALESCE(array_agg(p.member_id ORDER BY p.member_id)
                        FILTER (WHERE p.member_id IS NOT NULL), '{}') AS participants
          FROM expenses e
@@ -57,6 +58,10 @@ export class PostgresStore {
       payerId: row.payer_id,
       amountCents: row.amount_cents,
       participantIds: row.participants,
+      description: row.description ?? undefined,
+      category: row.category ?? undefined,
+      date: row.expense_date,
+      note: row.note ?? undefined,
     }));
 
     return {
@@ -67,6 +72,26 @@ export class PostgresStore {
     };
   }
 
+  async listWorkspacesForUser(userId: string): Promise<WorkspaceSummary[]> {
+    const result = await this.pool.query(
+      `SELECT w.id, w.name,
+              array_agg(wm.member_id ORDER BY wm.member_id) AS member_ids
+         FROM workspace_access wa
+         JOIN workspaces w ON w.id = wa.workspace_id
+         JOIN workspace_members wm ON wm.workspace_id = w.id
+        WHERE wa.user_id = $1
+        GROUP BY w.id, w.name, w.created_at
+        ORDER BY w.created_at DESC, w.id DESC`,
+      [userId]
+    );
+
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      memberIds: row.member_ids,
+    }));
+  }
+
   async addExpense(workspaceId: string, expense: Expense): Promise<void> {
     const client: PoolClient = await this.pool.connect();
     try {
@@ -75,8 +100,19 @@ export class PostgresStore {
       if (exists.rowCount === 0) throw new NotFoundError("workspace not found");
 
       await client.query(
-        "INSERT INTO expenses (id, workspace_id, payer_id, amount_cents) VALUES ($1, $2, $3, $4)",
-        [expense.id, workspaceId, expense.payerId, expense.amountCents]
+        `INSERT INTO expenses
+           (id, workspace_id, payer_id, amount_cents, description, category, expense_date, note)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), $8)`,
+        [
+          expense.id,
+          workspaceId,
+          expense.payerId,
+          expense.amountCents,
+          expense.description ?? null,
+          expense.category ?? null,
+          expense.date ?? null,
+          expense.note ?? null,
+        ]
       );
       for (const memberId of expense.participantIds) {
         await client.query(
@@ -101,6 +137,25 @@ export class PostgresStore {
       [expenseId, workspaceId]
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async listCustomCategories(workspaceId: string): Promise<string[]> {
+    const result = await this.pool.query(
+      "SELECT name FROM workspace_categories WHERE workspace_id = $1 ORDER BY created_at, name",
+      [workspaceId]
+    );
+    return result.rows.map((row) => row.name);
+  }
+
+  async addCustomCategory(workspaceId: string, name: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `INSERT INTO workspace_categories (workspace_id, category_key, name)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (workspace_id, category_key) DO NOTHING
+       RETURNING name`,
+      [workspaceId, name.trim().toLowerCase(), name.trim()]
+    );
+    return result.rowCount === 1;
   }
 
   // displayName is accepted to match the store interface; the schema has no

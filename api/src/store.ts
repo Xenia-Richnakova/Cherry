@@ -7,3 +7,5 @@ export interface Workspace {
   memberIds: MemberId[];
   expenses: Expense[];
 }
+
+export type WorkspaceSummary = Pick<Workspace, "id" | "name" | "memberIds">;

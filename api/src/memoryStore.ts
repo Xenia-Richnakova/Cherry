@@ -1,7 +1,7 @@
 // api/src/memoryStore.ts
 import { randomUUID } from "crypto";
 import { Expense, MemberId } from "./split";
-import { Workspace } from "./store";
+import { Workspace, WorkspaceSummary } from "./store";
 
 export interface UserRecord {
   id: string;
@@ -14,6 +14,7 @@ export class MemoryStore {
   private users = new Map<string, UserRecord>();
   private sessions = new Map<string, string>(); // tokenHash -> userId
   private access = new Map<string, Map<string, MemberId>>(); // workspaceId -> userId -> memberId
+  private customCategories = new Map<string, Map<string, string>>(); // workspaceId -> normalized name -> display name
 
   async createWorkspace(name: string, memberIds: MemberId[]): Promise<Workspace> {
     const workspace: Workspace = { id: randomUUID(), name, memberIds: [...memberIds], expenses: [] };
@@ -23,6 +24,13 @@ export class MemoryStore {
 
   async getWorkspace(id: string): Promise<Workspace | undefined> {
     return this.workspaces.get(id);
+  }
+
+  async listWorkspacesForUser(userId: string): Promise<WorkspaceSummary[]> {
+    return Array.from(this.workspaces.values())
+      .filter((workspace) => this.access.get(workspace.id)?.has(userId))
+      .reverse()
+      .map(({ id, name, memberIds }) => ({ id, name, memberIds: [...memberIds] }));
   }
 
   async addExpense(workspaceId: string, expense: Expense): Promise<void> {
@@ -37,6 +45,23 @@ export class MemoryStore {
     const index = workspace.expenses.findIndex((e) => e.id === expenseId);
     if (index === -1) return false;
     workspace.expenses.splice(index, 1);
+    return true;
+  }
+
+  async listCustomCategories(workspaceId: string): Promise<string[]> {
+    return Array.from(this.customCategories.get(workspaceId)?.values() ?? []);
+  }
+
+  async addCustomCategory(workspaceId: string, name: string): Promise<boolean> {
+    if (!this.workspaces.has(workspaceId)) throw new Error("workspace not found");
+    let categories = this.customCategories.get(workspaceId);
+    if (!categories) {
+      categories = new Map();
+      this.customCategories.set(workspaceId, categories);
+    }
+    const key = name.trim().toLowerCase();
+    if (categories.has(key)) return false;
+    categories.set(key, name.trim());
     return true;
   }
 

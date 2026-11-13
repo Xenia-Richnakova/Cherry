@@ -9,16 +9,19 @@ import {
   UnauthorizedError,
   ForbiddenError,
 } from "./errors";
-import { Workspace } from "./store";
+import { Workspace, WorkspaceSummary } from "./store";
 import { hashPassword, verifyPassword, newSessionToken, hashToken } from "./auth";
 
 // Any object with these methods can back the API: MemoryStore for tests,
 // PostgresStore in production.
 export interface WorkspaceStore {
   createWorkspace(name: string, memberIds: MemberId[]): Promise<Workspace>;
+  listWorkspacesForUser(userId: string): Promise<WorkspaceSummary[]>;
   getWorkspace(id: string): Promise<Workspace | undefined>;
   addExpense(workspaceId: string, expense: Expense): Promise<void>;
   deleteExpense(workspaceId: string, expenseId: string): Promise<boolean>;
+  listCustomCategories(workspaceId: string): Promise<string[]>;
+  addCustomCategory(workspaceId: string, name: string): Promise<boolean>;
   addMember(workspaceId: string, memberId: MemberId, displayName: string): Promise<void>;
   createUser(email: string, passwordHash: string): Promise<{ id: string; email: string }>;
   findUserByEmail(
@@ -41,6 +44,46 @@ function isNonEmptyString(value: unknown): value is string {
 
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(isNonEmptyString);
+}
+
+const DEFAULT_EXPENSE_CATEGORIES = [
+  "Groceries",
+  "Fuel",
+  "Restaurants",
+  "Cosmetics",
+  "Clothes",
+  "Hygiene",
+];
+
+function categoryKey(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function localDateString(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function normaliseExpenseDate(value: unknown): string {
+  if (value === undefined || value === null || value === "") return localDateString();
+  if (typeof value !== "string") throw new ValidationError("date must use YYYY-MM-DD format");
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new ValidationError("date must use YYYY-MM-DD format");
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const check = new Date(Date.UTC(year, month - 1, day));
+  if (
+    year < 1 ||
+    check.getUTCFullYear() !== year ||
+    check.getUTCMonth() !== month - 1 ||
+    check.getUTCDate() !== day
+  ) {
+    throw new ValidationError("date is not a valid calendar date");
+  }
+  return value;
 }
 
 function paramId(value: string | string[] | undefined): string {
@@ -180,6 +223,16 @@ export function createApp(store: WorkspaceStore) {
 
   // ---- Workspace routes (all require a valid session) ----
 
+  app.get(
+    "/workspaces",
+    requireAuth,
+    wrap(async (req, res) => {
+      const userId = (req as AuthedRequest).userId as string;
+      const workspaces = await store.listWorkspacesForUser(userId);
+      res.json({ workspaces });
+    })
+  );
+
   app.post(
     "/workspaces",
     requireAuth,
@@ -197,6 +250,41 @@ export function createApp(store: WorkspaceStore) {
       const workspace = await store.createWorkspace(name, members);
       await store.grantAccess(workspace.id, userId, yourMemberId.trim());
       res.status(201).json(workspace);
+    })
+  );
+
+  app.get(
+    "/workspaces/:id/categories",
+    requireAuth,
+    wrap(async (req, res) => {
+      const workspace = await requireWorkspaceAccess(req);
+      const custom = await store.listCustomCategories(workspace.id);
+      res.json({ categories: [...DEFAULT_EXPENSE_CATEGORIES, ...custom] });
+    })
+  );
+
+  app.post(
+    "/workspaces/:id/categories",
+    requireAuth,
+    wrap(async (req, res) => {
+      const workspace = await requireWorkspaceAccess(req);
+      const { name } = req.body ?? {};
+      if (!isNonEmptyString(name) || name.trim().length > 40) {
+        throw new ValidationError("category name must be between 1 and 40 characters");
+      }
+
+      const trimmedName = name.trim();
+      const existing = [
+        ...DEFAULT_EXPENSE_CATEGORIES,
+        ...(await store.listCustomCategories(workspace.id)),
+      ];
+      if (existing.some((category) => categoryKey(category) === categoryKey(trimmedName))) {
+        throw new ConflictError("that category already exists");
+      }
+
+      const added = await store.addCustomCategory(workspace.id, trimmedName);
+      if (!added) throw new ConflictError("that category already exists");
+      res.status(201).json({ category: trimmedName });
     })
   );
 
@@ -226,13 +314,36 @@ export function createApp(store: WorkspaceStore) {
     wrap(async (req, res) => {
       const workspace = await requireWorkspaceAccess(req);
 
-      const { payerId, amountCents, participantIds, description } = req.body ?? {};
+      const { payerId, amountCents, participantIds, description, category, date, note } = req.body ?? {};
       if (!isNonEmptyString(payerId)) throw new ValidationError("payerId is required");
+      if (category !== undefined && !isNonEmptyString(category)) {
+        throw new ValidationError("category must be a non-empty string");
+      }
       if (typeof amountCents !== "number" || !Number.isInteger(amountCents) || amountCents <= 0) {
         throw new ValidationError("amountCents must be a positive integer (money in cents)");
       }
       if (!isStringArray(participantIds) || participantIds.length === 0) {
         throw new ValidationError("participantIds must be a non-empty array of strings");
+      }
+      if (note !== undefined && typeof note !== "string") {
+        throw new ValidationError("note must be a string");
+      }
+      if (typeof note === "string" && note.trim().length > 500) {
+        throw new ValidationError("note must be 500 characters or fewer");
+      }
+
+      let selectedCategory: string | undefined;
+      if (category !== undefined) {
+        const availableCategories = [
+          ...DEFAULT_EXPENSE_CATEGORIES,
+          ...(await store.listCustomCategories(workspace.id)),
+        ];
+        selectedCategory = availableCategories.find(
+          (available) => categoryKey(available) === categoryKey(category)
+        );
+        if (!selectedCategory) {
+          throw new ValidationError("category is not available in this workspace");
+        }
       }
 
       const expense: Expense = {
@@ -240,6 +351,10 @@ export function createApp(store: WorkspaceStore) {
         payerId: payerId.trim(),
         amountCents,
         participantIds: participantIds.map((id) => id.trim()),
+        category: selectedCategory,
+        date: normaliseExpenseDate(date),
+        note: typeof note === "string" && note.trim() ? note.trim() : undefined,
+        description: typeof description === "string" && description.trim() ? description.trim() : undefined,
       };
 
       // Validate members before saving. computeBalances throws if a payer or
@@ -247,10 +362,7 @@ export function createApp(store: WorkspaceStore) {
       computeBalances(workspace.memberIds, [...workspace.expenses, expense]);
 
       await store.addExpense(workspace.id, expense);
-      res.status(201).json({
-        ...expense,
-        description: typeof description === "string" ? description : undefined,
-      });
+      res.status(201).json(expense);
     })
   );
 
@@ -325,7 +437,28 @@ if (require.main === module) {
   const { PostgresStore } = require("./postgresStore");
   const pool = new Pool({ connectionString: process.env.DATABASE_URL });
   const port = Number(process.env.PORT ?? 3000);
-  createApp(new PostgresStore(pool)).listen(port, () => {
-    console.log(`Cherry API listening on http://localhost:${port}`);
+  async function start() {
+    await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS category TEXT");
+    await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS expense_date DATE");
+    await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS note TEXT");
+    await pool.query("UPDATE expenses SET expense_date = CURRENT_DATE WHERE expense_date IS NULL");
+    await pool.query("ALTER TABLE expenses ALTER COLUMN expense_date SET DEFAULT CURRENT_DATE");
+    await pool.query("ALTER TABLE expenses ALTER COLUMN expense_date SET NOT NULL");
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS workspace_categories (
+        workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+        category_key TEXT NOT NULL,
+        name TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (workspace_id, category_key)
+      )
+    `);
+    createApp(new PostgresStore(pool)).listen(port, () => {
+      console.log(`Cherry API listening on http://localhost:${port}`);
+    });
+  }
+  start().catch((err: Error) => {
+    console.error("Could not initialize the database schema:", err.message);
+    process.exitCode = 1;
   });
 }

@@ -8,17 +8,21 @@ interface ButtonProps {
   onPress: () => void;
   variant?: "primary" | "ghost";
   style?: ViewStyle;
+  disabled?: boolean;
 }
 
-export function Button({ label, onPress, variant = "primary", style }: ButtonProps) {
+export function Button({ label, onPress, variant = "primary", style, disabled = false }: ButtonProps) {
   const isPrimary = variant === "primary";
   return (
     <Pressable
       onPress={onPress}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
       style={({ pressed }) => [
         styles.base,
         isPrimary ? styles.primary : styles.ghost,
         pressed && (isPrimary ? styles.primaryPressed : styles.ghostPressed),
+        disabled && styles.disabled,
         style,
       ]}
       accessibilityRole="button"
@@ -48,6 +52,9 @@ const styles = StyleSheet.create({
   },
   ghostPressed: {
     backgroundColor: colors.surface,
+  },
+  disabled: {
+    opacity: 0.55,
   },
   label: {
     color: colors.text,

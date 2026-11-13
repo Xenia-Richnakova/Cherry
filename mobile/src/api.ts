@@ -1,13 +1,25 @@
 // mobile/src/api.ts
-// Change this to your Mac's address on the Wi-Fi network.
-//export const API_URL = "http://192.168.0.83:3000";
-export const API_URL = "http://localhost:3000";
-console.log("sending to", API_URL)
+import { Platform } from "react-native";
+
+// For a physical phone, use the Mac's current Wi-Fi address here.
+const PHONE_API_URL = "http://192.168.0.83:3000";
+export const API_URL = Platform.OS === "web" ? "http://localhost:3000" : PHONE_API_URL;
 
 export interface Workspace {
   id: string;
   name: string;
   memberIds: string[];
+}
+
+export interface Expense {
+  id: string;
+  payerId: string;
+  amountCents: number;
+  participantIds: string[];
+  description?: string;
+  category?: string;
+  date?: string;
+  note?: string;
 }
 
 const TIMEOUT_MS = 10000;
@@ -62,6 +74,58 @@ export function createWorkspace(
   return request<Workspace>(
     "/workspaces",
     { method: "POST", body: JSON.stringify({ name, memberIds, yourMemberId }) },
+    token
+  );
+}
+
+export async function getMyWorkspaces(token: string): Promise<Workspace[]> {
+  const body = await request<{ workspaces: Workspace[] }>("/workspaces", {}, token);
+  return body.workspaces;
+}
+
+export async function getWorkspaceExpenses(token: string, workspaceId: string): Promise<Expense[]> {
+  const body = await request<{ expenses: Expense[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/expenses`,
+    {},
+    token
+  );
+  return body.expenses;
+}
+
+export async function getWorkspaceCategories(token: string, workspaceId: string): Promise<string[]> {
+  const body = await request<{ categories: string[] }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/categories`,
+    {},
+    token
+  );
+  return body.categories;
+}
+
+export async function createWorkspaceCategory(
+  token: string,
+  workspaceId: string,
+  name: string
+): Promise<string> {
+  const body = await request<{ category: string }>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/categories`,
+    { method: "POST", body: JSON.stringify({ name }) },
+    token
+  );
+  return body.category;
+}
+
+export function addWorkspaceExpense(
+  token: string,
+  workspaceId: string,
+  expense: Omit<Expense, "id" | "description" | "category" | "date" | "note"> & {
+    category: string;
+    date: string;
+    note?: string;
+  }
+): Promise<Expense> {
+  return request<Expense>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/expenses`,
+    { method: "POST", body: JSON.stringify(expense) },
     token
   );
 }

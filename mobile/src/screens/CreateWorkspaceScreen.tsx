@@ -8,9 +8,10 @@ import { createWorkspace, Workspace } from "../api";
 interface Props {
   token: string;
   onCreated: (workspace: Workspace) => void;
+  onCancel: () => void;
 }
 
-export function CreateWorkspaceScreen({ token, onCreated }: Props) {
+export function CreateWorkspaceScreen({ token, onCreated, onCancel }: Props) {
   const [name, setName] = useState("");
   const [membersText, setMembersText] = useState("");
   const [yourMemberId, setYourMemberId] = useState("");
@@ -91,8 +92,10 @@ export function CreateWorkspaceScreen({ token, onCreated }: Props) {
       <Button
         label={busy ? "Creating…" : "Create workspace"}
         onPress={submit}
+        disabled={busy}
         style={styles.cta}
       />
+      <Button label="Back to workspaces" variant="ghost" onPress={onCancel} disabled={busy} />
     </ScrollView>
   );
 }

@@ -1,30 +1,47 @@
 // mobile/App.tsx
 import React, { useState } from "react";
-import { SafeAreaView, StatusBar, View, Text, StyleSheet } from "react-native";
+import { SafeAreaView, StatusBar } from "react-native";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { CreateWorkspaceScreen } from "./src/screens/CreateWorkspaceScreen";
-import { colors, fonts, spacing } from "./src/theme";
-import { Button } from "./src/components/Button";
+import { WorkspacesScreen } from "./src/screens/WorkspacesScreen";
+import { WorkspaceScreen } from "./src/screens/WorkspaceScreen";
+import { colors } from "./src/theme";
 import { Workspace } from "./src/api";
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
-  const [creating, setCreating] = useState(false);
-
+  const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   let screen: React.ReactNode;
   if (!token) {
     screen = <LoginScreen onSignedIn={setToken} />;
   } else if (workspace) {
     screen = (
-      <View style={styles.done}>
-        <Text style={styles.doneTitle}>{workspace.name}</Text>
-        <Text style={styles.doneText}>Members: {workspace.memberIds.join(", ")}</Text>
-        <Button label="Create another" onPress={() => setWorkspace(null)} style={styles.gap} />
-      </View>
+      <WorkspaceScreen
+        token={token}
+        workspace={workspace}
+        onBackToWorkspaces={() => setWorkspace(null)}
+      />
+    );
+  } else if (creatingWorkspace) {
+    screen = (
+      <CreateWorkspaceScreen
+        token={token}
+        onCreated={(createdWorkspace) => {
+          setWorkspace(createdWorkspace);
+          setCreatingWorkspace(false);
+        }}
+        onCancel={() => setCreatingWorkspace(false)}
+      />
     );
   } else {
-    screen = <CreateWorkspaceScreen token={token} onCreated={setWorkspace} />;
+    screen = (
+      <WorkspacesScreen
+        token={token}
+        onSelect={setWorkspace}
+        onCreate={() => setCreatingWorkspace(true)}
+      />
+    );
   }
 
   return (
@@ -35,9 +52,3 @@ export default function App() {
   );
 }
 
-const styles = StyleSheet.create({
-  done: { flex: 1, padding: spacing.lg, justifyContent: "center", gap: spacing.md },
-  doneTitle: { fontFamily: fonts.display, fontSize: 30, color: colors.text },
-  doneText: { fontSize: 16, color: colors.textMuted },
-  gap: { marginTop: spacing.md },
-});

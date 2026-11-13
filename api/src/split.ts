@@ -5,6 +5,10 @@ export interface Expense {
   payerId: MemberId;
   amountCents: number;
   participantIds: MemberId[];
+  description?: string;
+  category?: string;
+  date?: string;
+  note?: string;
 }
 
 export interface Balance {
