@@ -33,10 +33,15 @@ export class MemoryStore {
       .map(({ id, name, memberIds }) => ({ id, name, memberIds: [...memberIds] }));
   }
 
-  async addExpense(workspaceId: string, expense: Expense): Promise<void> {
+  async addExpense(workspaceId: string, expense: Expense): Promise<boolean> {
     const workspace = this.workspaces.get(workspaceId);
     if (!workspace) throw new Error("workspace not found");
+    if (
+      expense.sourceNotificationId &&
+      workspace.expenses.some((item) => item.sourceNotificationId === expense.sourceNotificationId)
+    ) return false;
     workspace.expenses.push(expense);
+    return true;
   }
 
   async deleteExpense(workspaceId: string, expenseId: string): Promise<boolean> {

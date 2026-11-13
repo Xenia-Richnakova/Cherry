@@ -92,17 +92,19 @@ export class PostgresStore {
     }));
   }
 
-  async addExpense(workspaceId: string, expense: Expense): Promise<void> {
+  async addExpense(workspaceId: string, expense: Expense): Promise<boolean> {
     const client: PoolClient = await this.pool.connect();
     try {
       await client.query("BEGIN");
       const exists = await client.query("SELECT 1 FROM workspaces WHERE id = $1", [workspaceId]);
       if (exists.rowCount === 0) throw new NotFoundError("workspace not found");
 
-      await client.query(
+      const inserted = await client.query(
         `INSERT INTO expenses
-           (id, workspace_id, payer_id, amount_cents, description, category, expense_date, note)
-         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), $8)`,
+           (id, workspace_id, payer_id, amount_cents, description, category, expense_date, note, source_notification_id)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), $8, $9)
+         ON CONFLICT (workspace_id, source_notification_id) WHERE source_notification_id IS NOT NULL
+         DO NOTHING RETURNING id`,
         [
           expense.id,
           workspaceId,
@@ -112,8 +114,13 @@ export class PostgresStore {
           expense.category ?? null,
           expense.date ?? null,
           expense.note ?? null,
+          expense.sourceNotificationId ?? null,
         ]
       );
+      if (inserted.rowCount === 0) {
+        await client.query("COMMIT");
+        return false;
+      }
       for (const memberId of expense.participantIds) {
         await client.query(
           "INSERT INTO expense_participants (expense_id, workspace_id, member_id) VALUES ($1, $2, $3)",
@@ -121,6 +128,7 @@ export class PostgresStore {
         );
       }
       await client.query("COMMIT");
+      return true;
     } catch (err) {
       await client.query("ROLLBACK");
       throw err;

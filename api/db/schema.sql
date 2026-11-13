@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS expenses (
   category     TEXT,
   expense_date DATE NOT NULL DEFAULT CURRENT_DATE,
   note         TEXT,
+  source_notification_id TEXT,
   created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
   FOREIGN KEY (workspace_id, payer_id)
     REFERENCES workspace_members(workspace_id, member_id)
@@ -35,6 +36,9 @@ CREATE TABLE IF NOT EXISTS expense_participants (
 );
 
 CREATE INDEX IF NOT EXISTS idx_expenses_workspace ON expenses(workspace_id);
+ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source_notification_id TEXT;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_notification
+  ON expenses (workspace_id, source_notification_id) WHERE source_notification_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS workspace_categories (
   workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

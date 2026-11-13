@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   addWorkspaceExpense,
@@ -8,6 +8,7 @@ import {
   getWorkspaceExpenses,
   Workspace,
 } from "../api";
+import { BankNotificationImportCard } from "../features/bank-notifications/BankNotificationImportCard";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { colors, fonts, radius, spacing } from "../theme";
@@ -110,6 +111,9 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   const [categoryFilter, setCategoryFilter] = useState("All categories");
   const [noteSearch, setNoteSearch] = useState("");
 
+  const reloadExpenses = useCallback(async () => {
+    setExpenses(await getWorkspaceExpenses(token, workspace.id));
+  }, [token, workspace.id]);
   useEffect(() => {
     let active = true;
     setLoading(true);
@@ -253,6 +257,12 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
       <Text style={styles.eyebrow}>WORKSPACE</Text>
       <Text style={styles.title}>{workspace.name}</Text>
       <Text style={styles.subtitle}>Members: {workspace.memberIds.join(", ")}</Text>
+
+      <BankNotificationImportCard
+        token={token}
+        workspaceId={workspace.id}
+        onExpensesChanged={reloadExpenses}
+      />
 
       <View style={styles.sectionHeading}>
         <View style={styles.expenseTitleRow}>

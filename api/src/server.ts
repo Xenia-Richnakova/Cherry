@@ -11,6 +11,7 @@ import {
 } from "./errors";
 import { Workspace, WorkspaceSummary } from "./store";
 import { hashPassword, verifyPassword, newSessionToken, hashToken } from "./auth";
+import { registerBankNotificationRoutes } from "./features/bank-notifications";
 
 // Any object with these methods can back the API: MemoryStore for tests,
 // PostgresStore in production.
@@ -18,7 +19,7 @@ export interface WorkspaceStore {
   createWorkspace(name: string, memberIds: MemberId[]): Promise<Workspace>;
   listWorkspacesForUser(userId: string): Promise<WorkspaceSummary[]>;
   getWorkspace(id: string): Promise<Workspace | undefined>;
-  addExpense(workspaceId: string, expense: Expense): Promise<void>;
+  addExpense(workspaceId: string, expense: Expense): Promise<boolean | void>;
   deleteExpense(workspaceId: string, expenseId: string): Promise<boolean>;
   listCustomCategories(workspaceId: string): Promise<string[]>;
   addCustomCategory(workspaceId: string, name: string): Promise<boolean>;
@@ -53,6 +54,7 @@ const DEFAULT_EXPENSE_CATEGORIES = [
   "Cosmetics",
   "Clothes",
   "Hygiene",
+  "Unknown",
 ];
 
 function categoryKey(value: string): string {
@@ -184,6 +186,14 @@ export function createApp(store: WorkspaceStore) {
 
     return workspace;
   }
+
+  registerBankNotificationRoutes(
+    app,
+    requireAuth,
+    requireWorkspaceAccess,
+    store,
+    (req) => (req as AuthedRequest).userId
+  );
 
   // ---- Authentication routes (public) ----
 
@@ -361,7 +371,11 @@ export function createApp(store: WorkspaceStore) {
       // participant is not a member; the database foreign keys also enforce this.
       computeBalances(workspace.memberIds, [...workspace.expenses, expense]);
 
-      await store.addExpense(workspace.id, expense);
+      const inserted = await store.addExpense(workspace.id, expense);
+      if (expense.sourceNotificationId && inserted === false) {
+        res.status(200).json({ alreadyImported: true });
+        return;
+      }
       res.status(201).json(expense);
     })
   );
@@ -441,6 +455,9 @@ if (require.main === module) {
     await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS category TEXT");
     await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS expense_date DATE");
     await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS note TEXT");
+    await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source_notification_id TEXT");
+    await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_notification
+      ON expenses (workspace_id, source_notification_id) WHERE source_notification_id IS NOT NULL`);
     await pool.query("UPDATE expenses SET expense_date = CURRENT_DATE WHERE expense_date IS NULL");
     await pool.query("ALTER TABLE expenses ALTER COLUMN expense_date SET DEFAULT CURRENT_DATE");
     await pool.query("ALTER TABLE expenses ALTER COLUMN expense_date SET NOT NULL");

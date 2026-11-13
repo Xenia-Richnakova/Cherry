@@ -24,7 +24,7 @@ export interface Expense {
 
 const TIMEOUT_MS = 10000;
 
-async function request<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
+export async function apiRequest<T>(path: string, options: RequestInit = {}, token?: string): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (token) headers.Authorization = `Bearer ${token}`;
 
@@ -51,7 +51,7 @@ async function request<T>(path: string, options: RequestInit = {}, token?: strin
 }
 
 export async function login(email: string, password: string): Promise<string> {
-  const body = await request<{ token: string }>("/auth/login", {
+  const body = await apiRequest<{ token: string }>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
@@ -59,7 +59,7 @@ export async function login(email: string, password: string): Promise<string> {
 }
 
 export async function register(email: string, password: string): Promise<void> {
-  await request("/auth/register", {
+  await apiRequest("/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
@@ -71,7 +71,7 @@ export function createWorkspace(
   memberIds: string[],
   yourMemberId: string
 ): Promise<Workspace> {
-  return request<Workspace>(
+  return apiRequest<Workspace>(
     "/workspaces",
     { method: "POST", body: JSON.stringify({ name, memberIds, yourMemberId }) },
     token
@@ -79,12 +79,12 @@ export function createWorkspace(
 }
 
 export async function getMyWorkspaces(token: string): Promise<Workspace[]> {
-  const body = await request<{ workspaces: Workspace[] }>("/workspaces", {}, token);
+  const body = await apiRequest<{ workspaces: Workspace[] }>("/workspaces", {}, token);
   return body.workspaces;
 }
 
 export async function getWorkspaceExpenses(token: string, workspaceId: string): Promise<Expense[]> {
-  const body = await request<{ expenses: Expense[] }>(
+  const body = await apiRequest<{ expenses: Expense[] }>(
     `/workspaces/${encodeURIComponent(workspaceId)}/expenses`,
     {},
     token
@@ -93,7 +93,7 @@ export async function getWorkspaceExpenses(token: string, workspaceId: string): 
 }
 
 export async function getWorkspaceCategories(token: string, workspaceId: string): Promise<string[]> {
-  const body = await request<{ categories: string[] }>(
+  const body = await apiRequest<{ categories: string[] }>(
     `/workspaces/${encodeURIComponent(workspaceId)}/categories`,
     {},
     token
@@ -106,7 +106,7 @@ export async function createWorkspaceCategory(
   workspaceId: string,
   name: string
 ): Promise<string> {
-  const body = await request<{ category: string }>(
+  const body = await apiRequest<{ category: string }>(
     `/workspaces/${encodeURIComponent(workspaceId)}/categories`,
     { method: "POST", body: JSON.stringify({ name }) },
     token
@@ -123,7 +123,7 @@ export function addWorkspaceExpense(
     note?: string;
   }
 ): Promise<Expense> {
-  return request<Expense>(
+  return apiRequest<Expense>(
     `/workspaces/${encodeURIComponent(workspaceId)}/expenses`,
     { method: "POST", body: JSON.stringify(expense) },
     token

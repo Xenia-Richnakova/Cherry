@@ -9,6 +9,7 @@ export interface Expense {
   category?: string;
   date?: string;
   note?: string;
+  sourceNotificationId?: string;
 }
 
 export interface Balance {
