@@ -17,15 +17,9 @@ class CherryNotificationsModule : Module() {
       appContext.currentActivity?.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
     }
 
-    Function("setActiveWorkspace") { workspaceId: String? ->
-      appContext.reactContext?.getSharedPreferences(CherryNotificationListenerService.PREFS, 0)
-        ?.edit()?.putString("active_workspace", workspaceId)?.apply()
-    }
-
-    Function("getPendingTransactions") { workspaceId: String ->
+    Function("getPendingTransactions") {
       val prefs = appContext.reactContext?.getSharedPreferences(CherryNotificationListenerService.PREFS, 0)
-      val queue = CherryNotificationListenerService.readQueue(prefs)
-      queue.filter { it["workspaceId"] == workspaceId }
+      CherryNotificationListenerService.readQueue(prefs)
     }
 
     Function("acknowledgeTransaction") { id: String ->

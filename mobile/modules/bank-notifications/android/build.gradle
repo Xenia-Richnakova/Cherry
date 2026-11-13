@@ -10,7 +10,6 @@ android {
   namespace "expo.modules.cherrynotifications"
   compileSdkVersion safeExtGet("compileSdkVersion", 36)
   defaultConfig { minSdkVersion safeExtGet("minSdkVersion", 24) }
-  buildFeatures { buildConfig true }
 }
 
 dependencies {

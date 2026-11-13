@@ -11,7 +11,6 @@ export const nativeModuleAvailable = NativeBankNotifications !== null;
 export const bankNotifications = {
   hasAccess: () => NativeBankNotifications?.hasNotificationAccess() ?? false,
   openSettings: () => NativeBankNotifications?.openNotificationAccessSettings(),
-  setActiveWorkspace: (id: string | null) => NativeBankNotifications?.setActiveWorkspace(id),
-  getPending: (workspaceId: string) => NativeBankNotifications?.getPendingTransactions(workspaceId) ?? [],
+  getPending: () => NativeBankNotifications?.getPendingTransactions() ?? [],
   acknowledge: (id: string) => NativeBankNotifications?.acknowledgeTransaction(id),
 };

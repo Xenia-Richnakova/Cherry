@@ -2,9 +2,11 @@ package expo.modules.cherrynotifications
 
 import android.content.ComponentName
 import android.content.Context
+import android.content.pm.ApplicationInfo
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.MessageDigest
@@ -14,11 +16,12 @@ import java.util.Locale
 
 class CherryNotificationListenerService : NotificationListenerService() {
   override fun onNotificationPosted(sbn: StatusBarNotification) {
-    val isTatraBanka = sbn.packageName == TATRA_BANKA_PACKAGE
-    val isDebugShellTest = BuildConfig.DEBUG && sbn.packageName == "com.android.shell"
-    if (!isTatraBanka && !isDebugShellTest) return
+    debugLog("Received notification from ${sbn.packageName}")
+    if (sbn.packageName == packageName) {
+      debugLog("Ignored Cherry's own notification")
+      return
+    }
     val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-    val workspaceId = prefs.getString("active_workspace", null) ?: return
     val extras = sbn.notification.extras
     val title = extras.getCharSequence("android.title")?.toString().orEmpty()
     val body = listOf(
@@ -26,25 +29,44 @@ class CherryNotificationListenerService : NotificationListenerService() {
       extras.getCharSequence("android.bigText")?.toString(),
       extras.getCharSequence("android.subText")?.toString()
     ).filterNotNull().joinToString(" ").trim()
-    val parsed = parseDebit("$title $body") ?: return
+    debugLog("Notification extras keys=${extras.keySet().sorted().joinToString(",")}")
+    if (sbn.packageName == "com.android.shell") {
+      // Shell notifications are synthetic test data; expose their exact fields
+      // in debug builds to diagnose the test parser without logging bank text.
+      debugLog("Shell test title='$title', body='$body'")
+    }
+    val parsed = parseDebit("$title $body") ?: run {
+      debugLog("Ignored notification: no clear EUR debit found")
+      return
+    }
     val id = sha256("${sbn.key}:${sbn.postTime}:${parsed.first}")
     val queue = readQueue(prefs)
-    if (queue.any { it["id"] == id }) return
+    if (queue.any { it["id"] == id }) {
+      debugLog("Ignored duplicate notification")
+      return
+    }
     val date = SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date(sbn.postTime))
     queue.add(mapOf(
       "id" to id,
-      "workspaceId" to workspaceId,
       "amountCents" to parsed.first,
       "date" to date,
       "note" to parsed.second
     ))
     writeQueue(prefs, queue.takeLast(MAX_QUEUED))
+    debugLog("Queued bank expense amountCents=${parsed.first}")
+  }
+
+  private fun debugLog(message: String) {
+    // Avoid emitting bank activity diagnostics in production builds.
+    if ((applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0) {
+      Log.d(LOG_TAG, message)
+    }
   }
 
   companion object {
     const val PREFS = "cherry_bank_notification_import"
-    private const val TATRA_BANKA_PACKAGE = "sk.tb.ib.tatraandroid"
     private const val MAX_QUEUED = 100
+    private const val LOG_TAG = "CherryBankNotifications"
 
     fun hasAccess(context: Context?): Boolean {
       if (context == null) return false
@@ -62,7 +84,6 @@ class CherryNotificationListenerService : NotificationListenerService() {
           val item = array.getJSONObject(index)
           mapOf(
             "id" to item.getString("id"),
-            "workspaceId" to item.getString("workspaceId"),
             "amountCents" to item.getInt("amountCents"),
             "date" to item.getString("date"),
             "note" to item.getString("note")
@@ -99,7 +120,7 @@ class CherryNotificationListenerService : NotificationListenerService() {
       val merchant = text.replace(match.value, " ")
         .replace(Regex("(?i)\\b(payment|platba kartou|platba|card payment|transaction|transakcia|tatra banka)\\b"), " ")
         .replace(Regex("\\s+"), " ").trim().take(100)
-      val note = if (merchant.isBlank()) "Tatra banka card payment" else "Tatra banka · $merchant".take(160)
+      val note = if (merchant.isBlank()) "Bank card payment" else "Bank payment · $merchant".take(160)
       return cents to note
     }
 

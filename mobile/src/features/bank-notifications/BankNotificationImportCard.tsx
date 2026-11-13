@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { AppState, Platform, StyleSheet, Text, View } from "react-native";
-import { getWorkspaceExpenses } from "../../api";
+import { getMyWorkspaces, getWorkspaceExpenses } from "../../api";
 import { Button } from "../../components/Button";
 import { Card } from "../../components/Card";
 import { colors, spacing } from "../../theme";
@@ -16,11 +16,11 @@ interface Props {
 export function BankNotificationImportCard({ token, workspaceId, onExpensesChanged }: Props) {
   const [hasAccess, setHasAccess] = useState(false);
   const [checking, setChecking] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const importingRef = useRef(false);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
-    bankNotifications.setActiveWorkspace(workspaceId);
     const refreshAccess = () => setHasAccess(bankNotifications.hasAccess());
     refreshAccess();
     const subscription = AppState.addEventListener("change", (state) => {
@@ -37,27 +37,44 @@ export function BankNotificationImportCard({ token, workspaceId, onExpensesChang
       importingRef.current = true;
       setChecking(true);
       try {
-        const pending = bankNotifications.getPending(workspaceId);
-        let insertedAny = false;
+        const pending = bankNotifications.getPending();
+        if (pending.length === 0) {
+          setSyncMessage(null);
+          return;
+        }
+        const workspaces = await getMyWorkspaces(token);
+        if (workspaces.length === 0) {
+          setSyncMessage("Notification queued. Create a workspace to import it.");
+          return;
+        }
+        let insertedInCurrentWorkspace = false;
+        let importedCount = 0;
         for (const transaction of pending) {
           if (!active) break;
           try {
-            const inserted = await importNotificationExpense(token, workspaceId, {
-              notificationId: transaction.id,
-              amountCents: transaction.amountCents,
-              date: transaction.date,
-              note: transaction.note,
-            });
-            insertedAny ||= inserted;
+            for (const workspace of workspaces) {
+              const inserted = await importNotificationExpense(token, workspace.id, {
+                notificationId: transaction.id,
+                amountCents: transaction.amountCents,
+                date: transaction.date,
+                note: transaction.note,
+              });
+              if (inserted) importedCount += 1;
+              if (workspace.id === workspaceId && inserted) insertedInCurrentWorkspace = true;
+            }
             bankNotifications.acknowledge(transaction.id);
           } catch {
-            // Leave queued notifications in place so the API request can retry.
+            // Keep queued notifications; already imported workspaces dedupe retries.
+            setSyncMessage("Could not reach the API. The notification is queued and will retry.");
             break;
           }
         }
-        if (active && insertedAny) await onExpensesChanged();
-      } catch {
-        // The workspace remains usable when the API is temporarily offline.
+        if (importedCount > 0) {
+          setSyncMessage(`Added notification expense to ${importedCount} workspace${importedCount === 1 ? "" : "s"}.`);
+        }
+        if (active && insertedInCurrentWorkspace) await onExpensesChanged();
+      } catch (err) {
+        setSyncMessage(`Import failed: ${(err as Error).message}`);
       } finally {
         importingRef.current = false;
         if (active) setChecking(false);
@@ -75,13 +92,13 @@ export function BankNotificationImportCard({ token, workspaceId, onExpensesChang
   return (
     <Card style={styles.card}>
       <View style={styles.text}>
-        <Text style={styles.title}>Tatra banka notifications</Text>
+        <Text style={styles.title}>Bank notifications</Text>
         <Text style={styles.subtitle}>
           {!nativeModuleAvailable
             ? "This app build does not include the Android notification module. Install Cherry’s development build; Expo Go is not supported."
             : hasAccess
-              ? checking ? "Checking for transactions…" : "Clear card payments will be added as Unknown expenses."
-              : "Enable Android notification access to import clear card payments."}
+              ? syncMessage ?? (checking ? "Checking for notifications…" : "Clear EUR debits will be added as Unknown expenses in all your workspaces.")
+              : "Enable Android notification access to import clear EUR debits from bank apps."}
         </Text>
       </View>
       {nativeModuleAvailable && !hasAccess ? (
