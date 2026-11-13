@@ -42,7 +42,7 @@ export class PostgresStore {
 
     const expenseRows = await this.pool.query(
       `SELECT e.id, e.payer_id, e.amount_cents, e.description, e.category,
-              e.expense_date, e.note,
+              e.expense_date, e.note, e.source_notification_id,
               COALESCE(array_agg(p.member_id ORDER BY p.member_id)
                        FILTER (WHERE p.member_id IS NOT NULL), '{}') AS participants
          FROM expenses e
@@ -67,6 +67,7 @@ export class PostgresStore {
         ? `${row.expense_date.getFullYear()}-${String(row.expense_date.getMonth() + 1).padStart(2, "0")}-${String(row.expense_date.getDate()).padStart(2, "0")}`
         : String(row.expense_date).slice(0, 10),
       note: row.note ?? undefined,
+      sourceNotificationId: row.source_notification_id ?? undefined,
     }));
 
     return {
@@ -148,6 +149,16 @@ export class PostgresStore {
     const result = await this.pool.query(
       "DELETE FROM expenses WHERE id = $1 AND workspace_id = $2",
       [expenseId, workspaceId]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async updateExpense(workspaceId: string, expense: Expense): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE expenses
+          SET amount_cents = $3, expense_date = $4::date, category = $5, note = $6
+        WHERE workspace_id = $1 AND id = $2`,
+      [workspaceId, expense.id, expense.amountCents, expense.date, expense.category ?? null, expense.note ?? null]
     );
     return (result.rowCount ?? 0) > 0;
   }

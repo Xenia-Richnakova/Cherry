@@ -21,6 +21,7 @@ export interface Expense {
   category?: string;
   date?: string;
   note?: string;
+  sourceNotificationId?: string;
 }
 
 const TIMEOUT_MS = 10000;
@@ -127,6 +128,31 @@ export function addWorkspaceExpense(
   return apiRequest<Expense>(
     `/workspaces/${encodeURIComponent(workspaceId)}/expenses`,
     { method: "POST", body: JSON.stringify(expense) },
+    token
+  );
+}
+
+export function updateWorkspaceExpense(
+  token: string,
+  workspaceId: string,
+  expenseId: string,
+  updates: { category: string; note?: string; amountCents?: number; date?: string }
+): Promise<Expense> {
+  return apiRequest<Expense>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/expenses/${encodeURIComponent(expenseId)}`,
+    { method: "PUT", body: JSON.stringify(updates) },
+    token
+  );
+}
+
+export function deleteWorkspaceExpense(
+  token: string,
+  workspaceId: string,
+  expenseId: string
+): Promise<void> {
+  return apiRequest<void>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/expenses/${encodeURIComponent(expenseId)}`,
+    { method: "DELETE" },
     token
   );
 }

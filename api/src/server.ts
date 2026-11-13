@@ -20,6 +20,7 @@ export interface WorkspaceStore {
   listWorkspacesForUser(userId: string): Promise<WorkspaceSummary[]>;
   getWorkspace(id: string): Promise<Workspace | undefined>;
   addExpense(workspaceId: string, expense: Expense): Promise<boolean | void>;
+  updateExpense(workspaceId: string, expense: Expense): Promise<boolean>;
   deleteExpense(workspaceId: string, expenseId: string): Promise<boolean>;
   listCustomCategories(workspaceId: string): Promise<string[]>;
   addCustomCategory(workspaceId: string, name: string): Promise<boolean>;
@@ -140,7 +141,7 @@ export function createApp(store: WorkspaceStore) {
   app.use((req, res, next) => {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-    res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     if (req.method === "OPTIONS") {
       res.status(204).end();
       return;
@@ -386,6 +387,58 @@ export function createApp(store: WorkspaceStore) {
     wrap(async (req, res) => {
       const workspace = await requireWorkspaceAccess(req);
       res.json({ expenses: workspace.expenses });
+    })
+  );
+
+  app.put(
+    "/workspaces/:id/expenses/:expenseId",
+    requireAuth,
+    wrap(async (req, res) => {
+      const workspace = await requireWorkspaceAccess(req);
+      const expenseId = paramId(req.params.expenseId);
+      const current = workspace.expenses.find((expense) => expense.id === expenseId);
+      if (!current) throw new NotFoundError("expense not found");
+
+      const { category, amountCents, date, note } = req.body ?? {};
+      if (!isNonEmptyString(category)) throw new ValidationError("category is required");
+      if (note !== undefined && typeof note !== "string") {
+        throw new ValidationError("note must be a string");
+      }
+      if (typeof note === "string" && note.trim().length > 500) {
+        throw new ValidationError("note must be 500 characters or fewer");
+      }
+
+      const availableCategories = [
+        ...DEFAULT_EXPENSE_CATEGORIES,
+        ...(await store.listCustomCategories(workspace.id)),
+      ];
+      const selectedCategory = availableCategories.find(
+        (available) => categoryKey(available) === categoryKey(category)
+      );
+      if (!selectedCategory) throw new ValidationError("category is not available in this workspace");
+
+      const updatedAmount = amountCents === undefined ? current.amountCents : amountCents;
+      const updatedDate = date === undefined ? current.date ?? localDateString() : normaliseExpenseDate(date);
+      if (!Number.isSafeInteger(updatedAmount) || updatedAmount <= 0) {
+        throw new ValidationError("amountCents must be a positive integer (money in cents)");
+      }
+      if (
+        current.sourceNotificationId &&
+        (updatedAmount !== current.amountCents || updatedDate !== current.date)
+      ) {
+        throw new ValidationError("amount and date cannot be changed for a bank notification expense");
+      }
+
+      const updated: Expense = {
+        ...current,
+        amountCents: updatedAmount,
+        date: updatedDate,
+        category: selectedCategory,
+        note: typeof note === "string" && note.trim() ? note.trim() : undefined,
+      };
+      const saved = await store.updateExpense(workspace.id, updated);
+      if (!saved) throw new NotFoundError("expense not found");
+      res.json(updated);
     })
   );
 

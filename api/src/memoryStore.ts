@@ -53,6 +53,15 @@ export class MemoryStore {
     return true;
   }
 
+  async updateExpense(workspaceId: string, expense: Expense): Promise<boolean> {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace) return false;
+    const index = workspace.expenses.findIndex((item) => item.id === expense.id);
+    if (index < 0) return false;
+    workspace.expenses[index] = expense;
+    return true;
+  }
+
   async listCustomCategories(workspaceId: string): Promise<string[]> {
     return Array.from(this.customCategories.get(workspaceId)?.values() ?? []);
   }

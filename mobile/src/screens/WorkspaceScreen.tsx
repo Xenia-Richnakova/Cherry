@@ -1,11 +1,13 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   addWorkspaceExpense,
   createWorkspaceCategory,
+  deleteWorkspaceExpense,
   Expense,
   getWorkspaceCategories,
   getWorkspaceExpenses,
+  updateWorkspaceExpense,
   Workspace,
 } from "../api";
 import { BankNotificationImportCard } from "../features/bank-notifications/BankNotificationImportCard";
@@ -94,6 +96,8 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
+  const [selectMode, setSelectMode] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("");
@@ -112,6 +116,7 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   const [payerId, setPayerId] = useState(workspace.memberIds[0] ?? "");
   const [participantIds, setParticipantIds] = useState<string[]>(workspace.memberIds);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [dateWindow, setDateWindow] = useState<DateWindow>("30 days");
   const [categoryFilter, setCategoryFilter] = useState("All categories");
@@ -192,45 +197,106 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
     );
   }
 
+  function startNewExpense() {
+    setEditingExpense(null);
+    setAmount("");
+    setExpenseDate(todayAsISODate());
+    setNote("");
+    setFormError(null);
+    setShowForm(true);
+  }
+
+  function startEditingExpense(expense: Expense) {
+    setEditingExpense(expense);
+    setSelectedCategory(expense.category || categories[0] || "");
+    setAmount(formatAmount(expense.amountCents));
+    setExpenseDate(expense.date || todayAsISODate());
+    setNote(expense.note || expense.description || "");
+    setPayerId(expense.payerId);
+    setParticipantIds(expense.participantIds);
+    setFormError(null);
+    setShowForm(true);
+  }
+
+  function closeExpenseForm() {
+    setShowForm(false);
+    setEditingExpense(null);
+    setFormError(null);
+  }
+
+  async function deleteCurrentExpense() {
+    if (!editingExpense) return;
+    setDeleting(true);
+    setFormError(null);
+    try {
+      await deleteWorkspaceExpense(token, workspace.id, editingExpense.id);
+      setExpenses((current) => current.filter((expense) => expense.id !== editingExpense.id));
+      closeExpenseForm();
+    } catch (err) {
+      setFormError((err as Error).message);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  function confirmDeleteExpense() {
+    Alert.alert("Delete expense?", "This expense will be removed from the workspace.", [
+      { text: "Cancel", style: "cancel" },
+      { text: "Confirm", style: "destructive", onPress: () => void deleteCurrentExpense() },
+    ]);
+  }
+
   async function submitExpense() {
     setFormError(null);
+    const isEditing = editingExpense !== null;
+    const isBankExpense = Boolean(editingExpense?.sourceNotificationId);
     const amountCents = parseAmount(amount);
     if (!selectedCategory) {
       setFormError("Choose a category for this expense.");
       return;
     }
-    if (!parseDateOnly(expenseDate)) {
+    if ((!isEditing || !isBankExpense) && !parseDateOnly(expenseDate)) {
       setFormError("Enter a valid date in YYYY-MM-DD format.");
       return;
     }
-    if (amountCents === null) {
+    if ((!isEditing || !isBankExpense) && amountCents === null) {
       setFormError("Enter an amount greater than 0 with up to 2 decimal places.");
       return;
     }
-    if (!payerId) {
+    if (!isEditing && !payerId) {
       setFormError("Choose who paid.");
       return;
     }
-    if (participantIds.length === 0) {
+    if (!isEditing && participantIds.length === 0) {
       setFormError("Choose at least one person to split this expense with.");
       return;
     }
 
     setSaving(true);
     try {
-      const expense = await addWorkspaceExpense(token, workspace.id, {
-        category: selectedCategory,
-        date: expenseDate,
-        note: note.trim() || undefined,
-        amountCents,
-        payerId,
-        participantIds,
-      });
-      setExpenses((current) => [...current, expense]);
-      setAmount("");
-      setExpenseDate(todayAsISODate());
-      setNote("");
-      setShowForm(false);
+      if (editingExpense) {
+        const updated = await updateWorkspaceExpense(token, workspace.id, editingExpense.id, {
+          category: selectedCategory,
+          note: note.trim() || undefined,
+          ...(!isBankExpense ? { amountCents: amountCents as number, date: expenseDate } : {}),
+        });
+        setExpenses((current) => current.map((item) => item.id === updated.id ? updated : item));
+        closeExpenseForm();
+      } else {
+        const expense = await addWorkspaceExpense(token, workspace.id, {
+          category: selectedCategory,
+          date: expenseDate,
+          note: note.trim() || undefined,
+          amountCents: amountCents as number,
+          payerId,
+          participantIds,
+        });
+        setExpenses((current) => [...current, expense]);
+        setAmount("");
+        setExpenseDate(todayAsISODate());
+        setNote("");
+        setShowForm(false);
+      }
     } catch (err) {
       setFormError((err as Error).message);
     } finally {
@@ -290,16 +356,18 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
 
       <View style={styles.topActions}>
         <Button
-          label={showForm ? "Close form" : "Add expense"}
-          onPress={() => setShowForm((visible) => !visible)}
+          label="Add expense"
+          onPress={startNewExpense}
           style={styles.topAddButton}
         />
-        <Button
-          label="All workspaces"
-          variant="ghost"
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to all workspaces"
           onPress={onBackToWorkspaces}
-          style={styles.topWorkspacesButton}
-        />
+          style={styles.backToWorkspacesButton}
+        >
+          <Text style={styles.backToWorkspacesIcon}>←</Text>
+        </Pressable>
       </View>
 
       <View style={styles.sectionHeading}>
@@ -307,21 +375,36 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
           <Text style={styles.sectionTitle}>Expenses</Text>
           <Text style={styles.count}>{filteredExpenses.length}</Text>
         </View>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={hasActiveFilters ? "Filters, active" : "Filters"}
-          onPress={() => setShowFilters(true)}
-          style={styles.filterButton}
-        >
-          <View style={styles.filterIcon}>
-            <View style={[styles.filterLine, styles.filterLineLong]} />
-            <View style={[styles.filterLine, styles.filterLineMedium]} />
-            <View style={[styles.filterLine, styles.filterLineShort]} />
-            <View style={styles.filterStem} />
-          </View>
-          {hasActiveFilters ? <View style={styles.activeFilterDot} /> : null}
-        </Pressable>
+        <View style={styles.sectionActions}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={selectMode ? "Exit expense selection" : "Select an expense"}
+            accessibilityState={{ selected: selectMode }}
+            onPress={() => setSelectMode((current) => !current)}
+            style={[styles.selectButton, selectMode && styles.selectButtonActive]}
+          >
+            <Text style={[styles.selectButtonText, selectMode && styles.selectButtonTextActive]}>
+              {selectMode ? "Done" : "Select"}
+            </Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={hasActiveFilters ? "Filters, active" : "Filters"}
+            onPress={() => setShowFilters(true)}
+            style={styles.filterButton}
+          >
+            <View style={styles.filterIcon}>
+              <View style={[styles.filterLine, styles.filterLineLong]} />
+              <View style={[styles.filterLine, styles.filterLineMedium]} />
+              <View style={[styles.filterLine, styles.filterLineShort]} />
+              <View style={styles.filterStem} />
+            </View>
+            {hasActiveFilters ? <View style={styles.activeFilterDot} /> : null}
+          </Pressable>
+        </View>
       </View>
+
+      {selectMode ? <Text style={styles.selectionHint}>Tap an expense to edit or delete it.</Text> : null}
 
       {loading ? <Text style={styles.muted}>Loading expenses…</Text> : null}
       {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
@@ -340,35 +423,45 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
       ) : null}
 
       {[...filteredExpenses].reverse().map((expense) => (
-        <Card key={expense.id} style={styles.expenseCard}>
-          <View style={styles.expenseTop}>
-            <Text style={styles.expenseName}>
-              {expense.category || expense.description || "Uncategorized"}
+        <Pressable
+          key={expense.id}
+          disabled={!selectMode}
+          accessibilityRole={selectMode ? "button" : undefined}
+          accessibilityLabel={selectMode ? `Edit expense ${expense.category || expense.description || "Uncategorized"}` : undefined}
+          onPress={() => startEditingExpense(expense)}
+          style={({ pressed }) => [pressed && selectMode && styles.expensePressed]}
+        >
+          <Card style={styles.expenseCard}>
+            <View style={styles.expenseTop}>
+              <Text style={styles.expenseName}>
+                {expense.category || expense.description || "Uncategorized"}
+              </Text>
+              <Text style={styles.expenseAmount}>{formatAmount(expense.amountCents)}</Text>
+            </View>
+            <Text style={styles.muted}>
+              {displayExpenseDate(expense.date)} · Paid by {expense.payerId} · Split with {expense.participantIds.join(", ")}
             </Text>
-            <Text style={styles.expenseAmount}>{formatAmount(expense.amountCents)}</Text>
-          </View>
-          <Text style={styles.muted}>
-            {displayExpenseDate(expense.date)} · Paid by {expense.payerId} · Split with {expense.participantIds.join(", ")}
-          </Text>
-          {expense.note || expense.description ? (
-            <Text style={styles.note}>{expense.note || expense.description}</Text>
-          ) : null}
-        </Card>
+            {expense.note || expense.description ? (
+              <Text style={styles.note}>{expense.note || expense.description}</Text>
+            ) : null}
+            {selectMode ? <Text style={styles.editHint}>Tap to edit or delete</Text> : null}
+          </Card>
+        </Pressable>
       ))}
 
       {showForm && (
         <Modal
           visible={showForm}
           animationType="slide"
-          onRequestClose={() => setShowForm(false)}
+          onRequestClose={closeExpenseForm}
         >
           <View style={styles.formScreen}>
             <View style={styles.formScreenHeader}>
-              <Text style={styles.sheetTitle}>New expense</Text>
+              <Text style={styles.sheetTitle}>{editingExpense ? "Edit expense" : "New expense"}</Text>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Close new expense form"
-                onPress={() => setShowForm(false)}
+                accessibilityLabel="Close expense form"
+                onPress={closeExpenseForm}
                 style={styles.closeButton}
               >
                 <Text style={styles.closeText}>×</Text>
@@ -423,24 +516,31 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
 
           <Text style={styles.label}>Amount</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, editingExpense?.sourceNotificationId && styles.inputDisabled]}
             placeholder="0.00"
             placeholderTextColor={colors.textMuted}
             value={amount}
             onChangeText={setAmount}
             keyboardType="decimal-pad"
+            editable={!editingExpense?.sourceNotificationId}
           />
-          <Text style={styles.hint}>Enter a positive amount with up to 2 decimal places.</Text>
+          <Text style={styles.hint}>
+            {editingExpense?.sourceNotificationId
+              ? "Bank notification amounts cannot be edited."
+              : "Enter a positive amount with up to 2 decimal places."}
+          </Text>
 
           <View style={styles.optionalFieldsRow}>
             <Pressable
               accessibilityRole="button"
+              accessibilityState={{ disabled: Boolean(editingExpense?.sourceNotificationId) }}
+              disabled={Boolean(editingExpense?.sourceNotificationId)}
               onPress={() => {
                 const selected = parseDateOnly(expenseDate) ?? new Date();
                 setCalendarMonth(new Date(selected.getFullYear(), selected.getMonth(), 1));
                 setShowDatePicker(true);
               }}
-              style={styles.optionalFieldButton}
+              style={[styles.optionalFieldButton, editingExpense?.sourceNotificationId && styles.inputDisabled]}
             >
               <Text style={styles.optionalFieldLabel}>Date</Text>
               <Text style={styles.optionalFieldValue}>{displayExpenseDate(expenseDate)}</Text>
@@ -457,6 +557,7 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
             </Pressable>
           </View>
 
+          {!editingExpense ? <>
           <Text style={styles.label}>Who paid?</Text>
           <View style={styles.choices}>
             {workspace.memberIds.map((memberId) => {
@@ -496,25 +597,39 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
               );
             })}
           </View>
+          </> : null}
 
           {formError ? <Text style={styles.error}>{formError}</Text> : null}
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-          <Button
-            label={saving ? "Saving…" : "Save expense"}
-            onPress={submitExpense}
-            disabled={saving}
-            style={styles.saveButton}
-          />
-          <Button
-            label="Cancel"
-            variant="ghost"
-            onPress={() => {
-              setShowForm(false);
-              setFormError(null);
-            }}
-            disabled={saving}
-            style={styles.cancelButton}
-          />
+          <View style={styles.formButtons}>
+            {editingExpense ? (
+              <>
+                <Button
+                  label={saving ? "Saving…" : "Save changes"}
+                  onPress={submitExpense}
+                  disabled={saving || deleting}
+                  style={styles.formActionButton}
+                />
+
+                <Button
+                  label={deleting ? "Deleting…" : "Delete"}
+                  variant="ghost"
+                  onPress={confirmDeleteExpense}
+                  disabled={saving || deleting}
+                  style={styles.formActionButton}
+                />
+
+              </>
+            ) : (
+              <>
+                <Button
+                  label={saving ? "Saving…" : "Save expense"}
+                  onPress={submitExpense}
+                  disabled={saving || deleting}
+                  style={styles.formActionButton}
+                />
+
+              </>
+            )}
           </View>
         </Card>
             </ScrollView>
@@ -711,6 +826,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginTop: spacing.sm,
   },
+  sectionActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   expenseTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   sectionTitle: { color: colors.text, fontSize: 20, fontWeight: "700" },
   count: {
@@ -731,6 +847,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  selectButton: {
+    minWidth: 72,
+    height: 44,
+    paddingHorizontal: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectButtonActive: { borderColor: colors.primary, backgroundColor: colors.darkAccent },
+  selectButtonText: { color: colors.textMuted, fontSize: 14, fontWeight: "600" },
+  selectButtonTextActive: { color: colors.text },
+  selectionHint: { color: colors.textMuted, fontSize: 13, marginTop: -spacing.xs },
+  expensePressed: { opacity: 0.75 },
+  editHint: { color: colors.primary, fontSize: 12, marginTop: spacing.xs },
   filterIcon: { width: 22, height: 23, alignItems: "center", justifyContent: "center", gap: 3 },
   filterLine: { height: 2, borderRadius: 1, backgroundColor: colors.text },
   filterLineLong: { width: 20 },
@@ -797,9 +929,18 @@ const styles = StyleSheet.create({
   expenseName: { flex: 1, color: colors.text, fontSize: 16, fontWeight: "700" },
   expenseAmount: { color: colors.text, fontSize: 16, fontWeight: "700" },
   note: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  topActions: { flexDirection: "row", alignItems: "stretch", gap: spacing.sm, marginTop: spacing.sm },
-  topAddButton: { flex: 1.4, paddingVertical: spacing.md },
-  topWorkspacesButton: { flex: 1, paddingVertical: spacing.sm },
+  topActions: { width: "100%", flexDirection: "row", alignItems: "center", gap: spacing.lg, marginTop: spacing.sm },
+  topAddButton: { flex: 1, minWidth: 0, paddingVertical: spacing.md },
+  backToWorkspacesButton: {
+    width: 52,
+    height: 52,
+    borderWidth: 1,
+    borderColor: colors.primary,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  backToWorkspacesIcon: { color: colors.primary, fontSize: 30, lineHeight: 34, fontWeight: "900" },
   optionalFieldsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
   optionalFieldButton: {
     flex: 1,
@@ -818,7 +959,7 @@ const styles = StyleSheet.create({
   formScreen: { flex: 1, backgroundColor: colors.background },
   formScreenHeader: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
+    paddingTop: spacing.xl + spacing.md,
     paddingBottom: spacing.sm,
     flexDirection: "row",
     alignItems: "center",
@@ -838,6 +979,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.md,
   },
+  inputDisabled: { opacity: 0.5 },
   hint: { color: colors.textMuted, fontSize: 12 },
   noteInput: { minHeight: 80, textAlignVertical: "top" },
   entrySheet: {
@@ -894,7 +1036,7 @@ const styles = StyleSheet.create({
   choiceText: { color: colors.textMuted, fontSize: 14 },
   choiceTextSelected: { color: colors.text, fontWeight: "700" },
   error: { color: colors.primary, fontSize: 14, marginTop: spacing.xs },
-  saveButton: { marginTop: spacing.sm },
-  cancelButton: { marginTop: spacing.xs },
+  formButtons: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.md },
+  formActionButton: { flex: 1, minWidth: 0 },
   anotherButton: { marginTop: spacing.md },
 });
