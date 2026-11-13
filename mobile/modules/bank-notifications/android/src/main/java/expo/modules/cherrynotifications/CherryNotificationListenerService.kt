@@ -14,7 +14,9 @@ import java.util.Locale
 
 class CherryNotificationListenerService : NotificationListenerService() {
   override fun onNotificationPosted(sbn: StatusBarNotification) {
-    if (sbn.packageName != TATRA_BANKA_PACKAGE) return
+    val isTatraBanka = sbn.packageName == TATRA_BANKA_PACKAGE
+    val isDebugShellTest = BuildConfig.DEBUG && sbn.packageName == "com.android.shell"
+    if (!isTatraBanka && !isDebugShellTest) return
     val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     val workspaceId = prefs.getString("active_workspace", null) ?: return
     val extras = sbn.notification.extras

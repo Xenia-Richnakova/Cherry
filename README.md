@@ -37,3 +37,14 @@ DATABASE_URL=postgres://localhost/cherry npx tsx src/server.ts
 ## When server stops after few seconds from turning on
 ps aux | grep "server.ts" | grep -v grep
 kill <PID>
+
+## How to firstly build Gradle Android app
+Put all this into same terminal:
+
+export ANDROID_HOME="/Users/book/Library/Android/sdk"
+export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
+npx expo run:android
+
+## Simulate bank notification
+~/Library/Android/sdk/platform-tools/adb -s emulator-5554 shell cmd notification post \
+  -t "Card payment" cherry-test "Payment 12,34 EUR Coffee Shop"

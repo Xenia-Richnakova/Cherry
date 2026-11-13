@@ -2,7 +2,8 @@
 import { Platform } from "react-native";
 
 // For a physical phone, use the Mac's current Wi-Fi address here.
-const PHONE_API_URL = "http://192.168.0.83:3000";
+//const PHONE_API_URL = "http://192.168.0.83:3000";
+export const PHONE_API_URL = "http://10.0.2.2:3000";
 export const API_URL = Platform.OS === "web" ? "http://localhost:3000" : PHONE_API_URL;
 
 export interface Workspace {
