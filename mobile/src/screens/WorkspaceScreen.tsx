@@ -103,6 +103,12 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   const [amount, setAmount] = useState("");
   const [expenseDate, setExpenseDate] = useState(todayAsISODate());
   const [note, setNote] = useState("");
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [calendarMonth, setCalendarMonth] = useState(() => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), 1);
+  });
   const [payerId, setPayerId] = useState(workspace.memberIds[0] ?? "");
   const [participantIds, setParticipantIds] = useState<string[]>(workspace.memberIds);
   const [saving, setSaving] = useState(false);
@@ -168,6 +174,15 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   ];
   const hasActiveFilters =
     dateWindow !== "30 days" || categoryFilter !== "All categories" || noteSearch.trim() !== "";
+  const calendarDays = new Date(
+    calendarMonth.getFullYear(),
+    calendarMonth.getMonth() + 1,
+    0
+  ).getDate();
+  const calendarLeadingDays = (new Date(
+    calendarMonth.getFullYear(), calendarMonth.getMonth(), 1
+  ).getDay() + 6) % 7;
+  const monthLabel = calendarMonth.toLocaleDateString(undefined, { month: "long", year: "numeric" });
 
   function toggleParticipant(memberId: string) {
     setParticipantIds((current) =>
@@ -273,6 +288,20 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
         onExpensesChanged={reloadExpenses}
       />
 
+      <View style={styles.topActions}>
+        <Button
+          label={showForm ? "Close form" : "Add expense"}
+          onPress={() => setShowForm((visible) => !visible)}
+          style={styles.topAddButton}
+        />
+        <Button
+          label="All workspaces"
+          variant="ghost"
+          onPress={onBackToWorkspaces}
+          style={styles.topWorkspacesButton}
+        />
+      </View>
+
       <View style={styles.sectionHeading}>
         <View style={styles.expenseTitleRow}>
           <Text style={styles.sectionTitle}>Expenses</Text>
@@ -327,11 +356,29 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
         </Card>
       ))}
 
-      {!showForm ? (
-        <Button label="Add expense" onPress={() => setShowForm(true)} style={styles.addButton} />
-      ) : (
+      {showForm && (
+        <Modal
+          visible={showForm}
+          animationType="slide"
+          onRequestClose={() => setShowForm(false)}
+        >
+          <View style={styles.formScreen}>
+            <View style={styles.formScreenHeader}>
+              <Text style={styles.sheetTitle}>New expense</Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close new expense form"
+                onPress={() => setShowForm(false)}
+                style={styles.closeButton}
+              >
+                <Text style={styles.closeText}>×</Text>
+              </Pressable>
+            </View>
+            <ScrollView
+              contentContainerStyle={styles.formScreenContent}
+              keyboardShouldPersistTaps="handled"
+            >
         <Card style={styles.formCard}>
-          <Text style={styles.sectionTitle}>New expense</Text>
 
           <Text style={styles.label}>Category</Text>
           <View style={styles.choices}>
@@ -385,27 +432,30 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
           />
           <Text style={styles.hint}>Enter a positive amount with up to 2 decimal places.</Text>
 
-          <Text style={styles.label}>Date</Text>
-          <TextInput
-            style={styles.input}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={colors.textMuted}
-            value={expenseDate}
-            onChangeText={setExpenseDate}
-            keyboardType="numbers-and-punctuation"
-            maxLength={10}
-          />
-
-          <Text style={styles.label}>Note (optional)</Text>
-          <TextInput
-            style={[styles.input, styles.noteInput]}
-            placeholder="Add a note"
-            placeholderTextColor={colors.textMuted}
-            value={note}
-            onChangeText={setNote}
-            maxLength={500}
-            multiline
-          />
+          <View style={styles.optionalFieldsRow}>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                const selected = parseDateOnly(expenseDate) ?? new Date();
+                setCalendarMonth(new Date(selected.getFullYear(), selected.getMonth(), 1));
+                setShowDatePicker(true);
+              }}
+              style={styles.optionalFieldButton}
+            >
+              <Text style={styles.optionalFieldLabel}>Date</Text>
+              <Text style={styles.optionalFieldValue}>{displayExpenseDate(expenseDate)}</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => setShowNoteEditor(true)}
+              style={styles.optionalFieldButton}
+            >
+              <Text style={styles.optionalFieldLabel}>Note</Text>
+              <Text style={styles.optionalFieldValue} numberOfLines={1}>
+                {note.trim() || "Add note"}
+              </Text>
+            </Pressable>
+          </View>
 
           <Text style={styles.label}>Who paid?</Text>
           <View style={styles.choices}>
@@ -448,6 +498,7 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
           </View>
 
           {formError ? <Text style={styles.error}>{formError}</Text> : null}
+          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
           <Button
             label={saving ? "Saving…" : "Save expense"}
             onPress={submitExpense}
@@ -464,15 +515,79 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
             disabled={saving}
             style={styles.cancelButton}
           />
+          </View>
         </Card>
+            </ScrollView>
+            {showDatePicker ? (
+              <View style={styles.entryOverlay}>
+                <Pressable style={styles.modalBackdrop} onPress={() => setShowDatePicker(false)} />
+                <View style={styles.entrySheet}>
+                  <View style={styles.calendarHeader}>
+                    <Text style={styles.sheetTitle}>Choose date</Text>
+                    <Pressable onPress={() => setShowDatePicker(false)} style={styles.closeButton}>
+                      <Text style={styles.closeText}>×</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.monthNavigation}>
+                    <Pressable onPress={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() - 1, 1))} style={styles.monthArrow}>
+                      <Text style={styles.monthArrowText}>‹</Text>
+                    </Pressable>
+                    <Text style={styles.monthTitle}>{monthLabel}</Text>
+                    <Pressable onPress={() => setCalendarMonth((month) => new Date(month.getFullYear(), month.getMonth() + 1, 1))} style={styles.monthArrow}>
+                      <Text style={styles.monthArrowText}>›</Text>
+                    </Pressable>
+                  </View>
+                  <View style={styles.calendarGrid}>
+                    {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((day) => (
+                      <Text key={day} style={styles.weekday}>{day}</Text>
+                    ))}
+                    {Array.from({ length: calendarLeadingDays }, (_, index) => (
+                      <View key={`blank-${index}`} style={styles.calendarDay} />
+                    ))}
+                    {Array.from({ length: calendarDays }, (_, index) => {
+                      const day = index + 1;
+                      const date = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
+                      const dateValue = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+                      const selected = dateValue === expenseDate;
+                      return (
+                        <Pressable key={day} onPress={() => { setExpenseDate(dateValue); setShowDatePicker(false); }} style={[styles.calendarDay, selected && styles.calendarDaySelected]}>
+                          <Text style={[styles.calendarDayText, selected && styles.calendarDayTextSelected]}>{day}</Text>
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                  <Button label="Today" variant="ghost" onPress={() => { setExpenseDate(todayAsISODate()); setCalendarMonth(new Date()); setShowDatePicker(false); }} />
+                </View>
+              </View>
+            ) : null}
+            {showNoteEditor ? (
+              <View style={styles.entryOverlay}>
+                <Pressable style={styles.modalBackdrop} onPress={() => setShowNoteEditor(false)} />
+                <View style={styles.entrySheet}>
+                  <View style={styles.calendarHeader}>
+                    <Text style={styles.sheetTitle}>Expense note</Text>
+                    <Pressable onPress={() => setShowNoteEditor(false)} style={styles.closeButton}>
+                      <Text style={styles.closeText}>×</Text>
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    style={[styles.input, styles.noteInput]}
+                    placeholder="Add a note (optional)"
+                    placeholderTextColor={colors.textMuted}
+                    value={note}
+                    onChangeText={setNote}
+                    maxLength={500}
+                    multiline
+                    autoFocus
+                  />
+                  <Button label="Done" onPress={() => setShowNoteEditor(false)} />
+                </View>
+              </View>
+            ) : null}
+          </View>
+        </Modal>
       )}
 
-      <Button
-        label="All workspaces"
-        variant="ghost"
-        onPress={onBackToWorkspaces}
-        style={styles.anotherButton}
-      />
       </ScrollView>
 
       <Modal
@@ -682,8 +797,36 @@ const styles = StyleSheet.create({
   expenseName: { flex: 1, color: colors.text, fontSize: 16, fontWeight: "700" },
   expenseAmount: { color: colors.text, fontSize: 16, fontWeight: "700" },
   note: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  addButton: { marginTop: spacing.sm },
+  topActions: { flexDirection: "row", alignItems: "stretch", gap: spacing.sm, marginTop: spacing.sm },
+  topAddButton: { flex: 1.4, paddingVertical: spacing.md },
+  topWorkspacesButton: { flex: 1, paddingVertical: spacing.sm },
+  optionalFieldsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
+  optionalFieldButton: {
+    flex: 1,
+    minWidth: 0,
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.xs,
+  },
+  optionalFieldLabel: { color: colors.textMuted, fontSize: 12 },
+  optionalFieldValue: { color: colors.text, fontSize: 14, fontWeight: "600" },
   formCard: { gap: spacing.sm, marginTop: spacing.sm },
+  formScreen: { flex: 1, backgroundColor: colors.background },
+  formScreenHeader: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  formScreenContent: { padding: spacing.lg, paddingBottom: spacing.xl },
   label: { color: colors.textMuted, fontSize: 14, marginTop: spacing.sm },
   input: {
     backgroundColor: colors.background,
@@ -697,6 +840,45 @@ const styles = StyleSheet.create({
   },
   hint: { color: colors.textMuted, fontSize: 12 },
   noteInput: { minHeight: 80, textAlignVertical: "top" },
+  entrySheet: {
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    paddingBottom: spacing.xl,
+    gap: spacing.md,
+  },
+  entryOverlay: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 10,
+    justifyContent: "flex-end",
+  },
+  calendarHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  monthNavigation: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  monthTitle: { color: colors.text, fontSize: 17, fontWeight: "700" },
+  monthArrow: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthArrowText: { color: colors.text, fontSize: 28, lineHeight: 32 },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
+  weekday: { width: `${100 / 7}%`, textAlign: "center", color: colors.textMuted, fontSize: 12, paddingVertical: spacing.sm },
+  calendarDay: {
+    width: `${100 / 7}%`,
+    aspectRatio: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.pill,
+  },
+  calendarDaySelected: { backgroundColor: colors.primary },
+  calendarDayText: { color: colors.text, fontSize: 15 },
+  calendarDayTextSelected: { fontWeight: "700" },
   choices: { flexDirection: "row", flexWrap: "wrap", gap: spacing.sm },
   addCategoryRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   categoryInput: { flex: 1 },
