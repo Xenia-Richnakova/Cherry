@@ -33,3 +33,7 @@ Must be turned on in PostrgeSQL app
 
 ## Starting server
 DATABASE_URL=postgres://localhost/cherry npx tsx src/server.ts
+
+## When server stops after few seconds from turning on
+ps aux | grep "server.ts" | grep -v grep
+kill <PID>

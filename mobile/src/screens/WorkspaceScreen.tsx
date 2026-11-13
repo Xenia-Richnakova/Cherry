@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
 import {
   addWorkspaceExpense,
   createWorkspaceCategory,
@@ -93,6 +93,7 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
@@ -152,6 +153,8 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
       ? ["Uncategorized"]
       : []),
   ];
+  const hasActiveFilters =
+    dateWindow !== "30 days" || categoryFilter !== "All categories" || noteSearch.trim() !== "";
 
   function toggleParticipant(memberId: string) {
     setParticipantIds((current) =>
@@ -241,65 +244,36 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   }
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
+    <>
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
       <Text style={styles.eyebrow}>WORKSPACE</Text>
       <Text style={styles.title}>{workspace.name}</Text>
       <Text style={styles.subtitle}>Members: {workspace.memberIds.join(", ")}</Text>
 
       <View style={styles.sectionHeading}>
-        <Text style={styles.sectionTitle}>Expenses</Text>
-        <Text style={styles.count}>{filteredExpenses.length}</Text>
+        <View style={styles.expenseTitleRow}>
+          <Text style={styles.sectionTitle}>Expenses</Text>
+          <Text style={styles.count}>{filteredExpenses.length}</Text>
+        </View>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel={hasActiveFilters ? "Filters, active" : "Filters"}
+          onPress={() => setShowFilters(true)}
+          style={styles.filterButton}
+        >
+          <View style={styles.filterIcon}>
+            <View style={[styles.filterLine, styles.filterLineLong]} />
+            <View style={[styles.filterLine, styles.filterLineMedium]} />
+            <View style={[styles.filterLine, styles.filterLineShort]} />
+            <View style={styles.filterStem} />
+          </View>
+          {hasActiveFilters ? <View style={styles.activeFilterDot} /> : null}
+        </Pressable>
       </View>
-
-      <Text style={styles.label}>Time window</Text>
-      <View style={styles.choices}>
-        {DATE_WINDOWS.map((window) => {
-          const selected = dateWindow === window;
-          return (
-            <Pressable
-              key={window}
-              accessibilityRole="radio"
-              accessibilityState={{ selected }}
-              onPress={() => setDateWindow(window)}
-              style={[styles.choice, selected && styles.choiceSelected]}
-            >
-              <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>{window}</Text>
-            </Pressable>
-          );
-        })}
-      </View>
-
-      <Text style={styles.label}>Filter by category</Text>
-      <View style={styles.choices}>
-        {categoryFilterOptions.map((category) => {
-          const selected = categoryFilter === category;
-          return (
-            <Pressable
-              key={category}
-              accessibilityRole="radio"
-              accessibilityState={{ selected }}
-              onPress={() => setCategoryFilter(category)}
-              style={[styles.choice, selected && styles.choiceSelected]}
-            >
-              <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
-                {category}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
-      <TextInput
-        style={styles.input}
-        placeholder="Search notes (partial match)"
-        placeholderTextColor={colors.textMuted}
-        value={noteSearch}
-        onChangeText={setNoteSearch}
-        autoCapitalize="none"
-      />
 
       {loading ? <Text style={styles.muted}>Loading expenses…</Text> : null}
       {loadError ? <Text style={styles.error}>{loadError}</Text> : null}
@@ -480,7 +454,114 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
         onPress={onBackToWorkspaces}
         style={styles.anotherButton}
       />
-    </ScrollView>
+      </ScrollView>
+
+      <Modal
+        visible={showFilters}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowFilters(false)}
+      >
+        <View style={styles.modalRoot}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Close filters"
+            style={styles.modalBackdrop}
+            onPress={() => setShowFilters(false)}
+          />
+          <View style={styles.filterSheet}>
+            <View style={styles.filterHeader}>
+              <View>
+                <Text style={styles.sheetTitle}>Filter expenses</Text>
+                <Text style={styles.sheetSubtitle}>{filteredExpenses.length} matching</Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close filters"
+                onPress={() => setShowFilters(false)}
+                style={styles.closeButton}
+              >
+                <Text style={styles.closeText}>×</Text>
+              </Pressable>
+            </View>
+
+            <ScrollView
+              style={styles.filterBody}
+              contentContainerStyle={styles.filterContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Text style={styles.label}>Time window</Text>
+              <View style={styles.choices}>
+                {DATE_WINDOWS.map((window) => {
+                  const selected = dateWindow === window;
+                  return (
+                    <Pressable
+                      key={window}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      onPress={() => setDateWindow(window)}
+                      style={[styles.choice, selected && styles.choiceSelected]}
+                    >
+                      <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
+                        {window}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.label}>Filter by category</Text>
+              <View style={styles.choices}>
+                {categoryFilterOptions.map((category) => {
+                  const selected = categoryFilter === category;
+                  return (
+                    <Pressable
+                      key={category}
+                      accessibilityRole="radio"
+                      accessibilityState={{ selected }}
+                      onPress={() => setCategoryFilter(category)}
+                      style={[styles.choice, selected && styles.choiceSelected]}
+                    >
+                      <Text style={[styles.choiceText, selected && styles.choiceTextSelected]}>
+                        {category}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={styles.label}>Search notes</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Type any part of a note"
+                placeholderTextColor={colors.textMuted}
+                value={noteSearch}
+                onChangeText={setNoteSearch}
+                autoCapitalize="none"
+              />
+            </ScrollView>
+
+            <View style={styles.filterFooter}>
+              <Button
+                label="Reset"
+                variant="ghost"
+                onPress={() => {
+                  setDateWindow("30 days");
+                  setCategoryFilter("All categories");
+                  setNoteSearch("");
+                }}
+                style={styles.footerButton}
+              />
+              <Button
+                label="Done"
+                onPress={() => setShowFilters(false)}
+                style={styles.footerButton}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -490,7 +571,13 @@ const styles = StyleSheet.create({
   eyebrow: { color: colors.primary, fontSize: 12, fontWeight: "700", letterSpacing: 1.5 },
   title: { fontFamily: fonts.display, fontSize: 30, color: colors.text },
   subtitle: { color: colors.textMuted, fontSize: 14, marginBottom: spacing.sm },
-  sectionHeading: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
+  sectionHeading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
+  },
+  expenseTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
   sectionTitle: { color: colors.text, fontSize: 20, fontWeight: "700" },
   count: {
     color: colors.textMuted,
@@ -501,6 +588,74 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.xs,
     overflow: "hidden",
   },
+  filterButton: {
+    width: 44,
+    height: 44,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  filterIcon: { width: 22, height: 23, alignItems: "center", justifyContent: "center", gap: 3 },
+  filterLine: { height: 2, borderRadius: 1, backgroundColor: colors.text },
+  filterLineLong: { width: 20 },
+  filterLineMedium: { width: 14 },
+  filterLineShort: { width: 8 },
+  filterStem: { width: 2, height: 5, borderRadius: 1, backgroundColor: colors.text },
+  activeFilterDot: {
+    position: "absolute",
+    right: 7,
+    top: 7,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: colors.primary,
+  },
+  modalRoot: { flex: 1, justifyContent: "flex-end" },
+  modalBackdrop: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0, 0, 0, 0.62)",
+  },
+  filterSheet: {
+    maxHeight: "88%",
+    backgroundColor: colors.background,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingBottom: spacing.md,
+  },
+  filterHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  sheetTitle: { color: colors.text, fontFamily: fonts.display, fontSize: 23 },
+  sheetSubtitle: { color: colors.textMuted, fontSize: 13, marginTop: spacing.xs },
+  closeButton: {
+    width: 40,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+  },
+  closeText: { color: colors.text, fontSize: 28, lineHeight: 30 },
+  filterBody: { flexShrink: 1 },
+  filterContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.md, gap: spacing.md },
+  filterFooter: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  footerButton: { flex: 1 },
   muted: { color: colors.textMuted, fontSize: 14, lineHeight: 20 },
   emptyTitle: { color: colors.text, fontSize: 16, fontWeight: "700", marginBottom: spacing.xs },
   expenseCard: { padding: spacing.md, gap: spacing.xs },
