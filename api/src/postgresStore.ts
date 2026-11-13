@@ -60,7 +60,12 @@ export class PostgresStore {
       participantIds: row.participants,
       description: row.description ?? undefined,
       category: row.category ?? undefined,
-      date: row.expense_date,
+      // node-postgres parses DATE columns as JavaScript Date objects. Keep the
+      // API's date-only contract so mobile date parsing and date-window filters
+      // do not hide saved expenses after a workspace reload.
+      date: row.expense_date instanceof Date
+        ? `${row.expense_date.getFullYear()}-${String(row.expense_date.getMonth() + 1).padStart(2, "0")}-${String(row.expense_date.getDate()).padStart(2, "0")}`
+        : String(row.expense_date).slice(0, 10),
       note: row.note ?? undefined,
     }));
 

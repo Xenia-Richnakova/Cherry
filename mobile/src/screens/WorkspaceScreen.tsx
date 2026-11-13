@@ -117,21 +117,30 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   useEffect(() => {
     let active = true;
     setLoading(true);
+    setLoadError(null);
     Promise.all([
-      getWorkspaceExpenses(token, workspace.id),
-      getWorkspaceCategories(token, workspace.id),
+      getWorkspaceExpenses(token, workspace.id)
+        .then((items) => {
+          if (active) {
+            setExpenses(items);
+            setLoadError(null);
+          }
+        })
+        .catch((err: unknown) => {
+          if (active) setLoadError((err as Error).message);
+        }),
+      getWorkspaceCategories(token, workspace.id)
+        .then((categoryItems) => {
+          if (active) {
+            setCategories(categoryItems);
+            setSelectedCategory((current) => current || categoryItems[0] || "");
+            setCategoryError(null);
+          }
+        })
+        .catch((err: unknown) => {
+          if (active) setCategoryError(`Could not load categories: ${(err as Error).message}`);
+        }),
     ])
-      .then(([items, categoryItems]) => {
-        if (active) {
-          setExpenses(items);
-          setCategories(categoryItems);
-          setSelectedCategory((current) => current || categoryItems[0] || "");
-          setLoadError(null);
-        }
-      })
-      .catch((err: unknown) => {
-        if (active) setLoadError((err as Error).message);
-      })
       .finally(() => {
         if (active) setLoading(false);
       });
