@@ -1,8 +1,10 @@
 // mobile/src/api.ts
 import { Platform } from "react-native";
 
+// VM address
+export const PHONE_API_URL = "https://cherryapp.duckdns.org";
 // For a physical phone, use the Mac's current Wi-Fi address here.
-export const PHONE_API_URL = "http://192.168.0.83:3000";
+//export const PHONE_API_URL = "http://192.168.0.83:3000";
 //export const PHONE_API_URL = "http://10.0.2.2:3000";
 export const API_URL = Platform.OS === "web" ? "http://localhost:3000" : PHONE_API_URL;
 

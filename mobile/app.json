@@ -16,7 +16,6 @@
         "foregroundImage": "./assets/Cherry_logo.png"
       },
       "predictiveBackGestureEnabled": false,
-      "usesCleartextTraffic": true,
       "package": "com.anonymous.mobile"
     },
     "web": {
