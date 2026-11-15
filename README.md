@@ -45,10 +45,15 @@ Put all this into same terminal:
 export ANDROID_HOME="/Users/book/Library/Android/sdk"
 export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 
+
 npx expo run:android
 
 Or when i want to run it on physical phone
 npx expo run:android --device
+
+## When running on physical phone vs emulator
+PHONE_API_URL = "http://192.168.0.83:3000";
+PHONE_API_URL = "http://10.0.2.2:3000";
 
 ## Simulate bank notification
 chmod +x simulateNotifications.sh 

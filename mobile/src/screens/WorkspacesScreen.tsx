@@ -8,9 +8,10 @@ interface Props {
   token: string;
   onSelect: (workspace: Workspace) => void;
   onCreate: () => void;
+  onSignOut: () => void;
 }
 
-export function WorkspacesScreen({ token, onSelect, onCreate }: Props) {
+export function WorkspacesScreen({ token, onSelect, onCreate, onSignOut }: Props) {
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +39,18 @@ export function WorkspacesScreen({ token, onSelect, onCreate }: Props) {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
-      <Text style={styles.eyebrow}>CHERRY</Text>
+      <View style={styles.headerRow}>
+        <Text style={styles.eyebrow}>CHERRY</Text>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Sign out"
+          onPress={onSignOut}
+          hitSlop={8}
+          style={styles.signOutButton}
+        >
+          <Text style={styles.signOutText}>Sign out</Text>
+        </Pressable>
+      </View>
       <Text style={styles.title}>Your workspaces</Text>
       <Text style={styles.subtitle}>Choose a shared space to continue.</Text>
 
@@ -90,7 +102,10 @@ export function WorkspacesScreen({ token, onSelect, onCreate }: Props) {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingTop: spacing.xl, gap: spacing.md },
+  headerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   eyebrow: { color: colors.primary, fontSize: 12, fontWeight: "700", letterSpacing: 1.5 },
+  signOutButton: { paddingVertical: spacing.xs, paddingHorizontal: spacing.sm },
+  signOutText: { color: colors.textMuted, fontSize: 14, fontWeight: "600" },
   title: { fontFamily: fonts.display, fontSize: 30, color: colors.text },
   subtitle: { color: colors.textMuted, fontSize: 15, marginBottom: spacing.sm },
   messageBlock: { gap: spacing.sm, paddingVertical: spacing.lg },

@@ -1,6 +1,6 @@
 // mobile/App.tsx
-import React, { useState } from "react";
-import { SafeAreaView, StatusBar } from "react-native";
+import React, { useEffect, useState } from "react";
+import { ActivityIndicator, SafeAreaView, StatusBar, View } from "react-native";
 import { LoginScreen } from "./src/screens/LoginScreen";
 import { CreateWorkspaceScreen } from "./src/screens/CreateWorkspaceScreen";
 import { WorkspacesScreen } from "./src/screens/WorkspacesScreen";
@@ -10,16 +10,47 @@ import { StatisticsVisualScreen } from "./src/screens/StatisticsVisualScreen";
 import { StatisticsReport } from "./src/features/statistics/statistics";
 import { colors } from "./src/theme";
 import { Workspace } from "./src/api";
+import { loadToken, saveToken, clearToken } from "./src/session";
 
 export default function App() {
   const [token, setToken] = useState<string | null>(null);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [creatingWorkspace, setCreatingWorkspace] = useState(false);
   const [statisticsStep, setStatisticsStep] = useState<"questions" | "visual" | null>(null);
   const [statisticsReport, setStatisticsReport] = useState<StatisticsReport | null>(null);
+
+  useEffect(() => {
+    loadToken()
+      .then((saved) => {
+        if (saved) setToken(saved);
+      })
+      .finally(() => setCheckingSession(false));
+  }, []);
+
+  const handleSignedIn = (newToken: string) => {
+    setToken(newToken);
+    saveToken(newToken);
+  };
+
+  const handleSignOut = () => {
+    clearToken();
+    setToken(null);
+    setWorkspace(null);
+    setCreatingWorkspace(false);
+    setStatisticsStep(null);
+    setStatisticsReport(null);
+  };
+
   let screen: React.ReactNode;
-  if (!token) {
-    screen = <LoginScreen onSignedIn={setToken} />;
+  if (checkingSession) {
+    screen = (
+      <View style={{ flex: 1, justifyContent: "center", backgroundColor: colors.background }}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  } else if (!token) {
+    screen = <LoginScreen onSignedIn={handleSignedIn} />;
   } else if (workspace && statisticsStep === "questions") {
     screen = (
       <StatisticsQuestionsScreen
@@ -82,6 +113,7 @@ export default function App() {
           setStatisticsReport(null);
         }}
         onCreate={() => setCreatingWorkspace(true)}
+        onSignOut={handleSignOut}
       />
     );
   }
@@ -93,4 +125,3 @@ export default function App() {
     </SafeAreaView>
   );
 }
-
