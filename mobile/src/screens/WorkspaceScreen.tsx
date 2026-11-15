@@ -1,16 +1,21 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { Alert, ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { File, Paths } from "expo-file-system";
+import * as Sharing from "expo-sharing";
 import {
   addWorkspaceExpense,
   createWorkspaceCategory,
   deleteWorkspaceExpense,
   Expense,
+  getWorkspaceExpenseInvoice,
   getWorkspaceCategories,
   getWorkspaceExpenses,
   updateWorkspaceExpense,
   Workspace,
 } from "../api";
 import { BankNotificationImportCard } from "../features/bank-notifications/BankNotificationImportCard";
+import { pickAndReadInvoice } from "../features/invoices/importInvoice";
+import { InvoiceAttachmentDraft } from "../features/invoices/types";
 import { Button } from "../components/Button";
 import { Card } from "../components/Card";
 import { colors, fonts, radius, spacing } from "../theme";
@@ -122,6 +127,10 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
   const [dateWindow, setDateWindow] = useState<DateWindow>("30 days");
   const [categoryFilter, setCategoryFilter] = useState("All categories");
   const [noteSearch, setNoteSearch] = useState("");
+  const [invoiceAttachment, setInvoiceAttachment] = useState<InvoiceAttachmentDraft | null>(null);
+  const [invoiceNotice, setInvoiceNotice] = useState<string | null>(null);
+  const [invoiceImporting, setInvoiceImporting] = useState(false);
+  const [openingInvoiceId, setOpeningInvoiceId] = useState<string | null>(null);
 
   const reloadExpenses = useCallback(async () => {
     setExpenses(await getWorkspaceExpenses(token, workspace.id));
@@ -201,12 +210,61 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
     setAmount("");
     setExpenseDate(todayAsISODate());
     setNote("");
+    setInvoiceAttachment(null);
+    setInvoiceNotice(null);
     setFormError(null);
     setShowForm(true);
   }
 
+  async function importInvoice() {
+    setInvoiceImporting(true);
+    try {
+      const draft = await pickAndReadInvoice();
+      if (!draft) return;
+      setEditingExpense(null);
+      setInvoiceAttachment(draft.attachment);
+      setAmount(draft.amountCents ? formatAmount(draft.amountCents) : "");
+      setExpenseDate(draft.date || todayAsISODate());
+      setNote("");
+      setSelectedCategory(categories.find((category) => category.toLowerCase() === "unknown") ?? categories[0] ?? "Unknown");
+      setPayerId(workspace.memberIds[0] ?? "");
+      setParticipantIds(workspace.memberIds);
+      setInvoiceNotice(draft.notice ?? null);
+      setFormError(null);
+      setShowForm(true);
+    } catch (err) {
+      Alert.alert("Could not upload invoice", (err as Error).message);
+    } finally {
+      setInvoiceImporting(false);
+    }
+  }
+
+  async function openExpenseInvoice(expense: Expense) {
+    setOpeningInvoiceId(expense.id);
+    try {
+      const attachment = await getWorkspaceExpenseInvoice(token, workspace.id, expense.id);
+      const decoded = globalThis.atob(attachment.base64);
+      const bytes = Uint8Array.from(decoded, (character) => character.charCodeAt(0));
+      const safeName = attachment.fileName.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const file = new File(Paths.cache, `${expense.id}-${safeName}`);
+      if (file.exists) file.delete();
+      file.create();
+      file.write(bytes);
+      if (!(await Sharing.isAvailableAsync())) {
+        throw new Error("This device cannot open shared files.");
+      }
+      await Sharing.shareAsync(file.uri, { mimeType: attachment.mimeType, dialogTitle: attachment.fileName });
+    } catch (err) {
+      Alert.alert("Could not open invoice", (err as Error).message);
+    } finally {
+      setOpeningInvoiceId(null);
+    }
+  }
+
   function startEditingExpense(expense: Expense) {
     setEditingExpense(expense);
+    setInvoiceAttachment(null);
+    setInvoiceNotice(null);
     setSelectedCategory(expense.category || categories[0] || "");
     setAmount(formatAmount(expense.amountCents));
     setExpenseDate(expense.date || todayAsISODate());
@@ -220,6 +278,8 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
   function closeExpenseForm() {
     setShowForm(false);
     setEditingExpense(null);
+    setInvoiceAttachment(null);
+    setInvoiceNotice(null);
     setFormError(null);
   }
 
@@ -289,11 +349,14 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
           amountCents: amountCents as number,
           payerId,
           participantIds,
+          ...(invoiceAttachment ? { invoiceAttachment } : {}),
         });
         setExpenses((current) => [...current, expense]);
         setAmount("");
         setExpenseDate(todayAsISODate());
         setNote("");
+        setInvoiceAttachment(null);
+        setInvoiceNotice(null);
         setShowForm(false);
       }
     } catch (err) {
@@ -344,7 +407,18 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
         keyboardShouldPersistTaps="handled"
       >
       <Text style={styles.eyebrow}>WORKSPACE</Text>
-      <Text style={styles.title}>{workspace.name}</Text>
+      <View style={styles.workspaceTitleRow}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Back to all workspaces"
+          onPress={onBackToWorkspaces}
+          hitSlop={8}
+          style={styles.workspaceBackButton}
+        >
+          <Text style={styles.workspaceBackIcon}>←</Text>
+        </Pressable>
+        <Text style={styles.title} numberOfLines={1}>{workspace.name}</Text>
+      </View>
       <Text style={styles.subtitle}>Members: {workspace.memberIds.join(", ")}</Text>
 
       <BankNotificationImportCard
@@ -367,11 +441,20 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
         />
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel="Back to all workspaces"
-          onPress={onBackToWorkspaces}
-          style={styles.backToWorkspacesButton}
+          accessibilityLabel="Upload invoice"
+          accessibilityState={{ disabled: invoiceImporting }}
+          disabled={invoiceImporting}
+          onPress={() => void importInvoice()}
+          style={styles.uploadInvoiceButton}
         >
-          <Text style={styles.backToWorkspacesIcon}>←</Text>
+          {invoiceImporting ? <ActivityIndicator color={colors.primary} /> : (
+            <View style={styles.uploadIcon}>
+              <View style={styles.uploadArrowStem} />
+              <View style={styles.uploadArrowLeft} />
+              <View style={styles.uploadArrowRight} />
+              <View style={styles.uploadTray} />
+            </View>
+          )}
         </Pressable>
       </View>
 
@@ -449,6 +532,19 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
             {expense.note || expense.description ? (
               <Text style={styles.note}>{expense.note || expense.description}</Text>
             ) : null}
+            {expense.invoiceFileName && !selectMode ? (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open invoice ${expense.invoiceFileName}`}
+                disabled={openingInvoiceId === expense.id}
+                onPress={() => void openExpenseInvoice(expense)}
+                style={styles.invoiceLink}
+              >
+                <Text style={styles.invoiceLinkText} numberOfLines={1}>
+                  {openingInvoiceId === expense.id ? "Opening invoice…" : `▧ ${expense.invoiceFileName}`}
+                </Text>
+              </Pressable>
+            ) : null}
             {selectMode ? <Text style={styles.editHint}>Tap to edit or delete</Text> : null}
           </Card>
         </Pressable>
@@ -518,6 +614,16 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenSt
             />
           </View>
           {categoryError ? <Text style={styles.hint}>{categoryError}</Text> : null}
+
+          {invoiceAttachment ? (
+            <View style={styles.attachedInvoice}>
+              <Text style={styles.attachedInvoiceText} numberOfLines={1}>▧ {invoiceAttachment.fileName}</Text>
+              <Pressable accessibilityRole="button" accessibilityLabel="Remove invoice" onPress={() => { setInvoiceAttachment(null); setInvoiceNotice(null); }}>
+                <Text style={styles.removeInvoiceText}>Remove</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {invoiceNotice ? <Text style={styles.hint}>{invoiceNotice}</Text> : null}
 
           <Text style={styles.label}>Amount</Text>
           <TextInput
@@ -823,7 +929,10 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
   content: { padding: spacing.lg, paddingTop: spacing.xl, gap: spacing.md },
   eyebrow: { color: colors.primary, fontSize: 12, fontWeight: "700", letterSpacing: 1.5 },
-  title: { fontFamily: fonts.display, fontSize: 30, color: colors.text },
+  title: { flex: 1, minWidth: 0, fontFamily: fonts.display, fontSize: 30, color: colors.text },
+  workspaceTitleRow: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  workspaceBackButton: { width: 32, alignItems: "flex-start", justifyContent: "center" },
+  workspaceBackIcon: { color: colors.primary, fontSize: 32, lineHeight: 36, fontWeight: "700" },
   subtitle: { color: colors.textMuted, fontSize: 14, marginBottom: spacing.sm },
   sectionHeading: {
     flexDirection: "row",
@@ -934,19 +1043,45 @@ const styles = StyleSheet.create({
   expenseName: { flex: 1, color: colors.text, fontSize: 16, fontWeight: "700" },
   expenseAmount: { color: colors.text, fontSize: 16, fontWeight: "700" },
   note: { color: colors.text, fontSize: 14, lineHeight: 20 },
+  invoiceLink: { alignSelf: "flex-start", marginTop: spacing.xs, maxWidth: "100%" },
+  invoiceLinkText: { color: colors.primary, fontSize: 13, fontWeight: "600" },
+  attachedInvoice: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    gap: spacing.sm, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radius.md, paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm, marginTop: spacing.sm,
+  },
+  attachedInvoiceText: { color: colors.text, flex: 1, fontSize: 13 },
+  removeInvoiceText: { color: colors.primary, fontSize: 13, fontWeight: "700" },
   topActions: { width: "100%", flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
   topAddButton: { flex: 1, minWidth: 0, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
   topStatsButton: { width: 78, minWidth: 0, paddingHorizontal: spacing.xs, paddingVertical: spacing.md },
-  backToWorkspacesButton: {
-    width: 52,
-    height: 52,
+  uploadInvoiceButton: {
+    width: 48,
+    height: 48,
     borderWidth: 1,
     borderColor: colors.primary,
-    borderRadius: radius.pill,
+    borderRadius: radius.md,
     alignItems: "center",
     justifyContent: "center",
   },
-  backToWorkspacesIcon: { color: colors.primary, fontSize: 30, lineHeight: 34, fontWeight: "900" },
+  uploadIcon: { width: 24, height: 24, alignItems: "center", justifyContent: "flex-start" },
+  uploadArrowStem: { width: 2.5, height: 11, backgroundColor: colors.primary, marginTop: 1 },
+  uploadArrowLeft: {
+    position: "absolute", top: 1, left: 6, width: 9, height: 9,
+    borderLeftWidth: 2.5, borderBottomWidth: 2.5, borderColor: colors.primary,
+    transform: [{ rotate: "135deg" }],
+  },
+  uploadArrowRight: {
+    position: "absolute", top: 1, right: 6, width: 9, height: 9,
+    borderRightWidth: 2.5, borderBottomWidth: 2.5, borderColor: colors.primary,
+    transform: [{ rotate: "-135deg" }],
+  },
+  uploadTray: {
+    position: "absolute", bottom: 0, left: 2, right: 2, height: 8,
+    borderWidth: 2, borderTopWidth: 0, borderColor: colors.primary,
+    borderBottomLeftRadius: 3, borderBottomRightRadius: 3,
+  },
   optionalFieldsRow: { flexDirection: "row", gap: spacing.sm, marginTop: spacing.sm },
   optionalFieldButton: {
     flex: 1,

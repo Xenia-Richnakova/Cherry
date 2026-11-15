@@ -47,6 +47,9 @@ export PATH="$ANDROID_HOME/platform-tools:$ANDROID_HOME/emulator:$PATH"
 
 npx expo run:android
 
+Or when i want to run it on physical phone
+npx expo run:android --device
+
 ## Simulate bank notification
 chmod +x simulateNotifications.sh 
 ./simulateNotifications.sh

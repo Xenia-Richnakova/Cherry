@@ -10,6 +10,8 @@ export interface Expense {
   date?: string;
   note?: string;
   sourceNotificationId?: string;
+  invoiceFileName?: string;
+  invoiceMimeType?: string;
 }
 
 export interface Balance {

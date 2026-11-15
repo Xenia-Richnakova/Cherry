@@ -9,7 +9,7 @@ import {
   UnauthorizedError,
   ForbiddenError,
 } from "./errors";
-import { Workspace, WorkspaceSummary } from "./store";
+import { ExpenseInvoiceAttachment, Workspace, WorkspaceSummary } from "./store";
 import { hashPassword, verifyPassword, newSessionToken, hashToken } from "./auth";
 import { registerBankNotificationRoutes } from "./features/bank-notifications";
 
@@ -19,7 +19,8 @@ export interface WorkspaceStore {
   createWorkspace(name: string, memberIds: MemberId[]): Promise<Workspace>;
   listWorkspacesForUser(userId: string): Promise<WorkspaceSummary[]>;
   getWorkspace(id: string): Promise<Workspace | undefined>;
-  addExpense(workspaceId: string, expense: Expense): Promise<boolean | void>;
+  addExpense(workspaceId: string, expense: Expense, attachment?: ExpenseInvoiceAttachment): Promise<boolean | void>;
+  getExpenseInvoice(workspaceId: string, expenseId: string): Promise<ExpenseInvoiceAttachment | undefined>;
   updateExpense(workspaceId: string, expense: Expense): Promise<boolean>;
   deleteExpense(workspaceId: string, expenseId: string): Promise<boolean>;
   listCustomCategories(workspaceId: string): Promise<string[]>;
@@ -134,7 +135,7 @@ const wrap =
 
 export function createApp(store: WorkspaceStore) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "12mb" }));
 
   // Lets a browser on another origin (such as index.html opened from disk)
   // send JSON requests. Expo Go is not affected by CORS.
@@ -325,7 +326,7 @@ export function createApp(store: WorkspaceStore) {
     wrap(async (req, res) => {
       const workspace = await requireWorkspaceAccess(req);
 
-      const { payerId, amountCents, participantIds, description, category, date, note } = req.body ?? {};
+      const { payerId, amountCents, participantIds, description, category, date, note, invoiceAttachment } = req.body ?? {};
       if (!isNonEmptyString(payerId)) throw new ValidationError("payerId is required");
       if (category !== undefined && !isNonEmptyString(category)) {
         throw new ValidationError("category must be a non-empty string");
@@ -341,6 +342,33 @@ export function createApp(store: WorkspaceStore) {
       }
       if (typeof note === "string" && note.trim().length > 500) {
         throw new ValidationError("note must be 500 characters or fewer");
+      }
+
+      let attachment: ExpenseInvoiceAttachment | undefined;
+      if (invoiceAttachment !== undefined) {
+        if (
+          !invoiceAttachment ||
+          !isNonEmptyString(invoiceAttachment.fileName) ||
+          invoiceAttachment.fileName.length > 255 ||
+          !isNonEmptyString(invoiceAttachment.mimeType) ||
+          typeof invoiceAttachment.base64 !== "string"
+        ) throw new ValidationError("invoiceAttachment must include a file name, MIME type, and base64 data");
+        const mimeType = invoiceAttachment.mimeType.toLowerCase();
+        const allowedTypes = new Set(["application/pdf", "image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"]);
+        if (!allowedTypes.has(mimeType)) throw new ValidationError("invoice must be a PDF or supported image file");
+        const encoded = invoiceAttachment.base64.replace(/^data:[^,]*;base64,/, "");
+        if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(encoded)) {
+          throw new ValidationError("invoice attachment data is not valid base64");
+        }
+        const data = Buffer.from(encoded, "base64");
+        if (data.length === 0 || data.length > 8 * 1024 * 1024) {
+          throw new ValidationError("invoice files must be between 1 byte and 8 MB");
+        }
+        attachment = {
+          fileName: invoiceAttachment.fileName.trim(),
+          mimeType,
+          data,
+        };
       }
 
       let selectedCategory: string | undefined;
@@ -366,13 +394,15 @@ export function createApp(store: WorkspaceStore) {
         date: normaliseExpenseDate(date),
         note: typeof note === "string" && note.trim() ? note.trim() : undefined,
         description: typeof description === "string" && description.trim() ? description.trim() : undefined,
+        invoiceFileName: attachment?.fileName,
+        invoiceMimeType: attachment?.mimeType,
       };
 
       // Validate members before saving. computeBalances throws if a payer or
       // participant is not a member; the database foreign keys also enforce this.
       computeBalances(workspace.memberIds, [...workspace.expenses, expense]);
 
-      const inserted = await store.addExpense(workspace.id, expense);
+      const inserted = await store.addExpense(workspace.id, expense, attachment);
       if (expense.sourceNotificationId && inserted === false) {
         res.status(200).json({ alreadyImported: true });
         return;
@@ -387,6 +417,22 @@ export function createApp(store: WorkspaceStore) {
     wrap(async (req, res) => {
       const workspace = await requireWorkspaceAccess(req);
       res.json({ expenses: workspace.expenses });
+    })
+  );
+
+  app.get(
+    "/workspaces/:id/expenses/:expenseId/invoice",
+    requireAuth,
+    wrap(async (req, res) => {
+      const workspace = await requireWorkspaceAccess(req);
+      const expenseId = paramId(req.params.expenseId);
+      const attachment = await store.getExpenseInvoice(workspace.id, expenseId);
+      if (!attachment) throw new NotFoundError("invoice not found");
+      res.json({
+        fileName: attachment.fileName,
+        mimeType: attachment.mimeType,
+        base64: attachment.data.toString("base64"),
+      });
     })
   );
 
@@ -509,6 +555,9 @@ if (require.main === module) {
     await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS expense_date DATE");
     await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS note TEXT");
     await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS source_notification_id TEXT");
+    await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS invoice_file_name TEXT");
+    await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS invoice_mime_type TEXT");
+    await pool.query("ALTER TABLE expenses ADD COLUMN IF NOT EXISTS invoice_data BYTEA");
     await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_expenses_notification
       ON expenses (workspace_id, source_notification_id) WHERE source_notification_id IS NOT NULL`);
     await pool.query("UPDATE expenses SET expense_date = CURRENT_DATE WHERE expense_date IS NULL");

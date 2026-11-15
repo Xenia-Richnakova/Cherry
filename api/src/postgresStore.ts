@@ -2,7 +2,7 @@
 import { randomUUID } from "crypto";
 import { Pool, PoolClient } from "pg";
 import { Expense, MemberId } from "./split";
-import { Workspace, WorkspaceSummary } from "./store";
+import { ExpenseInvoiceAttachment, Workspace, WorkspaceSummary } from "./store";
 import { NotFoundError } from "./errors";
 import { UserRecord } from "./memoryStore";
 
@@ -43,6 +43,7 @@ export class PostgresStore {
     const expenseRows = await this.pool.query(
       `SELECT e.id, e.payer_id, e.amount_cents, e.description, e.category,
               e.expense_date, e.note, e.source_notification_id,
+              e.invoice_file_name, e.invoice_mime_type,
               COALESCE(array_agg(p.member_id ORDER BY p.member_id)
                        FILTER (WHERE p.member_id IS NOT NULL), '{}') AS participants
          FROM expenses e
@@ -68,6 +69,8 @@ export class PostgresStore {
         : String(row.expense_date).slice(0, 10),
       note: row.note ?? undefined,
       sourceNotificationId: row.source_notification_id ?? undefined,
+      invoiceFileName: row.invoice_file_name ?? undefined,
+      invoiceMimeType: row.invoice_mime_type ?? undefined,
     }));
 
     return {
@@ -98,7 +101,7 @@ export class PostgresStore {
     }));
   }
 
-  async addExpense(workspaceId: string, expense: Expense): Promise<boolean> {
+  async addExpense(workspaceId: string, expense: Expense, attachment?: ExpenseInvoiceAttachment): Promise<boolean> {
     const client: PoolClient = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -107,8 +110,9 @@ export class PostgresStore {
 
       const inserted = await client.query(
         `INSERT INTO expenses
-           (id, workspace_id, payer_id, amount_cents, description, category, expense_date, note, source_notification_id)
-         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), $8, $9)
+           (id, workspace_id, payer_id, amount_cents, description, category, expense_date, note, source_notification_id,
+            invoice_file_name, invoice_mime_type, invoice_data)
+         VALUES ($1, $2, $3, $4, $5, $6, COALESCE($7::date, CURRENT_DATE), $8, $9, $10, $11, $12)
          ON CONFLICT (workspace_id, source_notification_id) WHERE source_notification_id IS NOT NULL
          DO NOTHING RETURNING id`,
         [
@@ -121,6 +125,9 @@ export class PostgresStore {
           expense.date ?? null,
           expense.note ?? null,
           expense.sourceNotificationId ?? null,
+          attachment?.fileName ?? null,
+          attachment?.mimeType ?? null,
+          attachment?.data ?? null,
         ]
       );
       if (inserted.rowCount === 0) {
@@ -141,6 +148,21 @@ export class PostgresStore {
     } finally {
       client.release();
     }
+  }
+
+  async getExpenseInvoice(workspaceId: string, expenseId: string): Promise<ExpenseInvoiceAttachment | undefined> {
+    const result = await this.pool.query(
+      `SELECT invoice_file_name, invoice_mime_type, invoice_data
+         FROM expenses WHERE workspace_id = $1 AND id = $2 AND invoice_data IS NOT NULL`,
+      [workspaceId, expenseId]
+    );
+    if (result.rowCount === 0) return undefined;
+    const row = result.rows[0];
+    return {
+      fileName: row.invoice_file_name,
+      mimeType: row.invoice_mime_type,
+      data: row.invoice_data as Buffer,
+    };
   }
 
   // Returns true if an expense was removed. The expense_participants rows are

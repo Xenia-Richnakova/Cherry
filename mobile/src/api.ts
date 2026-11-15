@@ -2,8 +2,8 @@
 import { Platform } from "react-native";
 
 // For a physical phone, use the Mac's current Wi-Fi address here.
-export const PHONE_API_URL = "http://192.168.0.83:3000";
-//export const PHONE_API_URL = "http://10.0.2.2:3000";
+//export const PHONE_API_URL = "http://192.168.0.83:3000";
+export const PHONE_API_URL = "http://10.0.2.2:3000";
 export const API_URL = Platform.OS === "web" ? "http://localhost:3000" : PHONE_API_URL;
 
 export interface Workspace {
@@ -22,6 +22,14 @@ export interface Expense {
   date?: string;
   note?: string;
   sourceNotificationId?: string;
+  invoiceFileName?: string;
+  invoiceMimeType?: string;
+}
+
+export interface WorkspaceExpenseInvoice {
+  fileName: string;
+  mimeType: string;
+  base64: string;
 }
 
 const TIMEOUT_MS = 10000;
@@ -123,11 +131,24 @@ export function addWorkspaceExpense(
     category: string;
     date: string;
     note?: string;
+    invoiceAttachment?: { fileName: string; mimeType: string; base64: string };
   }
 ): Promise<Expense> {
   return apiRequest<Expense>(
     `/workspaces/${encodeURIComponent(workspaceId)}/expenses`,
     { method: "POST", body: JSON.stringify(expense) },
+    token
+  );
+}
+
+export function getWorkspaceExpenseInvoice(
+  token: string,
+  workspaceId: string,
+  expenseId: string
+): Promise<WorkspaceExpenseInvoice> {
+  return apiRequest<WorkspaceExpenseInvoice>(
+    `/workspaces/${encodeURIComponent(workspaceId)}/expenses/${encodeURIComponent(expenseId)}/invoice`,
+    {},
     token
   );
 }

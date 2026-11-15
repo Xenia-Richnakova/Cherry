@@ -1,6 +1,12 @@
 // api/src/store.ts
 import { Expense, MemberId } from "./split";
 
+export interface ExpenseInvoiceAttachment {
+  fileName: string;
+  mimeType: string;
+  data: Buffer;
+}
+
 export interface Workspace {
   id: string;
   name: string;

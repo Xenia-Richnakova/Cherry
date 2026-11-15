@@ -1,7 +1,7 @@
 // api/src/memoryStore.ts
 import { randomUUID } from "crypto";
 import { Expense, MemberId } from "./split";
-import { Workspace, WorkspaceSummary } from "./store";
+import { ExpenseInvoiceAttachment, Workspace, WorkspaceSummary } from "./store";
 
 export interface UserRecord {
   id: string;
@@ -15,6 +15,7 @@ export class MemoryStore {
   private sessions = new Map<string, string>(); // tokenHash -> userId
   private access = new Map<string, Map<string, MemberId>>(); // workspaceId -> userId -> memberId
   private customCategories = new Map<string, Map<string, string>>(); // workspaceId -> normalized name -> display name
+  private expenseInvoices = new Map<string, ExpenseInvoiceAttachment>();
 
   async createWorkspace(name: string, memberIds: MemberId[]): Promise<Workspace> {
     const workspace: Workspace = { id: randomUUID(), name, memberIds: [...memberIds], expenses: [] };
@@ -33,7 +34,7 @@ export class MemoryStore {
       .map(({ id, name, memberIds }) => ({ id, name, memberIds: [...memberIds] }));
   }
 
-  async addExpense(workspaceId: string, expense: Expense): Promise<boolean> {
+  async addExpense(workspaceId: string, expense: Expense, attachment?: ExpenseInvoiceAttachment): Promise<boolean> {
     const workspace = this.workspaces.get(workspaceId);
     if (!workspace) throw new Error("workspace not found");
     if (
@@ -41,7 +42,14 @@ export class MemoryStore {
       workspace.expenses.some((item) => item.sourceNotificationId === expense.sourceNotificationId)
     ) return false;
     workspace.expenses.push(expense);
+    if (attachment) this.expenseInvoices.set(expense.id, attachment);
     return true;
+  }
+
+  async getExpenseInvoice(workspaceId: string, expenseId: string): Promise<ExpenseInvoiceAttachment | undefined> {
+    const workspace = this.workspaces.get(workspaceId);
+    if (!workspace?.expenses.some((expense) => expense.id === expenseId)) return undefined;
+    return this.expenseInvoices.get(expenseId);
   }
 
   async deleteExpense(workspaceId: string, expenseId: string): Promise<boolean> {
@@ -50,6 +58,7 @@ export class MemoryStore {
     const index = workspace.expenses.findIndex((e) => e.id === expenseId);
     if (index === -1) return false;
     workspace.expenses.splice(index, 1);
+    this.expenseInvoices.delete(expenseId);
     return true;
   }
 
