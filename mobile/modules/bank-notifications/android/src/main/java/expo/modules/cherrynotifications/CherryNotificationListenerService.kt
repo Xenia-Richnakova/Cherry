@@ -115,7 +115,10 @@ class CherryNotificationListenerService : NotificationListenerService() {
       val amount = normalized.toBigDecimalOrNull() ?: return null
       if (amount <= java.math.BigDecimal.ZERO || amount > java.math.BigDecimal("99999999")) return null
       val cents = amount.movePointRight(2).toInt()
-      val hasDebitSignal = rawAmount.startsWith("-") || listOf("payment", "platba", "withdrawal", "výber", "vyber", "card", "kartou", "debit").any { lower.contains(it) }
+      val hasDebitSignal = rawAmount.startsWith("-") || listOf(
+        "payment", "platba", "withdrawal", "výber", "vyber", "card", "kartou", "debit",
+        "odišl", "odisl", "odešl", "odesl", "odchádz", "odchadz"
+      ).any { lower.contains(it) }
       if (!hasDebitSignal) return null
       val merchant = text.replace(match.value, " ")
         .replace(Regex("(?i)\\b(payment|platba kartou|platba|card payment|transaction|transakcia|tatra banka)\\b"), " ")
