@@ -19,6 +19,7 @@ interface Props {
   token: string;
   workspace: Workspace;
   onBackToWorkspaces: () => void;
+  onOpenStatistics: () => void;
 }
 
 type DateWindow = "7 days" | "30 days" | "3 months" | "1 year";
@@ -91,7 +92,7 @@ function formatAmount(cents: number): string {
   return `${(cents / 100).toFixed(2)}`;
 }
 
-export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props) {
+export function WorkspaceScreen({ token, workspace, onBackToWorkspaces, onOpenStatistics }: Props) {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -127,8 +128,6 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
   }, [token, workspace.id]);
   useEffect(() => {
     let active = true;
-    setLoading(true);
-    setLoadError(null);
     Promise.all([
       getWorkspaceExpenses(token, workspace.id)
         .then((items) => {
@@ -359,6 +358,12 @@ export function WorkspaceScreen({ token, workspace, onBackToWorkspaces }: Props)
           label="Add expense"
           onPress={startNewExpense}
           style={styles.topAddButton}
+        />
+        <Button
+          label="Stats"
+          variant="ghost"
+          onPress={onOpenStatistics}
+          style={styles.topStatsButton}
         />
         <Pressable
           accessibilityRole="button"
@@ -929,8 +934,9 @@ const styles = StyleSheet.create({
   expenseName: { flex: 1, color: colors.text, fontSize: 16, fontWeight: "700" },
   expenseAmount: { color: colors.text, fontSize: 16, fontWeight: "700" },
   note: { color: colors.text, fontSize: 14, lineHeight: 20 },
-  topActions: { width: "100%", flexDirection: "row", alignItems: "center", gap: spacing.lg, marginTop: spacing.sm },
-  topAddButton: { flex: 1, minWidth: 0, paddingVertical: spacing.md },
+  topActions: { width: "100%", flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.sm },
+  topAddButton: { flex: 1, minWidth: 0, paddingHorizontal: spacing.md, paddingVertical: spacing.md },
+  topStatsButton: { width: 78, minWidth: 0, paddingHorizontal: spacing.xs, paddingVertical: spacing.md },
   backToWorkspacesButton: {
     width: 52,
     height: 52,

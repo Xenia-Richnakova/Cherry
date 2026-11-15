@@ -18,7 +18,6 @@ export function WorkspacesScreen({ token, onSelect, onCreate }: Props) {
 
   useEffect(() => {
     let active = true;
-    setLoading(true);
     getMyWorkspaces(token)
       .then((items) => {
         if (active) {
@@ -47,7 +46,15 @@ export function WorkspacesScreen({ token, onSelect, onCreate }: Props) {
       {error ? (
         <View style={styles.messageBlock}>
           <Text style={styles.error}>{error}</Text>
-          <Button label="Try again" variant="ghost" onPress={() => setReloadKey((key) => key + 1)} />
+          <Button
+            label="Try again"
+            variant="ghost"
+            onPress={() => {
+              setLoading(true);
+              setError(null);
+              setReloadKey((key) => key + 1);
+            }}
+          />
         </View>
       ) : null}
       {!loading && !error && workspaces.length === 0 ? (

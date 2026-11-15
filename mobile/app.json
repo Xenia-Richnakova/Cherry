@@ -24,7 +24,8 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
-      "./src/features/bank-notifications/withBankNotificationListener"
+      "./src/features/bank-notifications/withBankNotificationListener",
+      "expo-sharing"
     ]
   }
 }
